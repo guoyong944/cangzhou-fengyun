@@ -28,12 +28,21 @@
     font-weight:700; margin-bottom:6px; flex-wrap:wrap;}
   .ach .badge{background:var(--panel2); border:1px solid var(--line); border-radius:999px;
     padding:2px 9px; color:var(--txt); font-weight:600;}
-  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:5px;}
-  .stat{background:var(--panel); border:1px solid var(--line); border-radius:8px;
-    padding:5px 6px; text-align:center;}
-  .stat .lbl{font-size:10px; color:var(--dim); margin-bottom:2px;}
-  .stat .val{font-size:13px; font-weight:700;}
-  .bar{height:4px; background:#000; border-radius:3px; margin-top:3px; overflow:hidden;}
+  /* 醒目的当前地点/学期 */
+  #placebar{font-size:15px; font-weight:800; letter-spacing:.5px; color:var(--accent);
+    background:linear-gradient(90deg, rgba(255,122,60,.18), rgba(255,122,60,.02));
+    border:1px solid #3a2a1a; border-left:3px solid var(--accent); border-radius:8px;
+    padding:8px 11px; margin-bottom:6px; display:flex; align-items:center; gap:8px;}
+  #placebar .term{margin-left:auto; font-size:13px; color:var(--gold); font-weight:800;
+    background:#1c1a10; border:1px solid #4a3f1a; border-radius:999px; padding:2px 10px;}
+  #placebar:empty{display:none;}
+  /* 紧凑数值面板 */
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:4px;}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:3px 4px 4px; text-align:center;}
+  .stat .lbl{font-size:8.5px; color:var(--dim); margin-bottom:1px;}
+  .stat .val{font-size:11px; font-weight:700; line-height:1.1;}
+  .bar{height:3px; background:#000; border-radius:3px; margin-top:2px; overflow:hidden;}
   .bar > i{display:block; height:100%; border-radius:3px; transition:width .4s;}
 
   /* 主区域 */
@@ -226,12 +235,28 @@
   .reel{font-size:38px; font-weight:900; letter-spacing:2px; padding:14px; color:var(--gold);}
   .wlbal{display:flex; gap:10px; justify-content:center; margin:8px 0; font-size:13px;}
   .wlbal .seg{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px;}
+  /* 收支预算 */
+  .budget{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:11px 13px; font-size:13px;}
+  .budget .brow{display:flex; align-items:baseline; gap:6px; padding:3px 0; flex-wrap:wrap;}
+  .budget .brow small{color:var(--dim); font-size:11px;}
+  .budget .bsum{border-top:1px dashed var(--line); margin-top:5px; padding-top:7px; font-size:14px; color:var(--gold);}
+  .budget .bsum.bad{color:var(--red);}
+  /* 德国逐门成绩 */
+  .grades{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px;}
+  .grades .crow{display:flex; justify-content:space-between; align-items:center; padding:7px 4px;
+    border-bottom:1px dashed var(--line); font-size:15px; opacity:.5; transition:opacity .25s;}
+  .grades .crow.lit{opacity:1;}
+  .grades .crow .cn{color:var(--dim);}
+  .grades .crow .cg{font-size:17px;}
+  .grades .gsum{margin-top:11px; padding-top:10px; border-top:1px solid var(--line);
+    text-align:center; line-height:1.9; font-size:14px;}
 </style>
 </head>
 <body>
 <div id="app">
   <div id="topbar">
     <div class="ach" id="ach"></div>
+    <div id="placebar"></div>
     <div class="stats" id="stats"></div>
   </div>
   <div id="screen"></div>
@@ -247,8 +272,8 @@
 /* ============================ 沧州风云 ============================ */
 
 const SAVE_KEY = "cangzhou_save_v1";
-const RATE = 7.8; // 1 € ≈ 7.8 ¥
-const RATES = {CNY:1, EUR:7.8, GBP:9.0}; // 兑人民币汇率
+const RATE = 8; // 1 € = 8 ¥
+const RATES = {CNY:1, EUR:8, GBP:9.0}; // 兑人民币汇率
 
 const Game = {
   s:null,
@@ -280,10 +305,10 @@ const Game = {
   // 各币种经济参数（收入/支出按当地货币计）
   econ(){
     if(this.s.cur==="GBP")
-      return {sym:"£", live:2000, workRate:14, workRand:[0,140], internRate:35, internRand:[200,900],
+      return {sym:"£", live:2000, workRate:110, workRand:[0,1400], internRate:35, internRand:[200,900],
               tooth:[50,300], schHi:1200, schMid:500, socUnit:120, socMax:6000, socStep:200};
     return this.s.cur==="EUR"
-      ? {sym:"€", live:1200, workRate:16, workRand:[0,160], internRate:40, internRand:[300,1100],
+      ? {sym:"€", live:1200, workRate:120, workRand:[0,1500], internRate:40, internRand:[300,1100],
          tooth:[60,400], schHi:1500, schMid:600, socUnit:130, socMax:8000, socStep:200}
       : {sym:"¥", live:2500, workRate:120, workRand:[0,800], internRate:300, internRand:[2000,8000],
          tooth:[500,2500], schHi:8000, schMid:3000, socUnit:1000, socMax:60000, socStep:1000};
@@ -366,6 +391,10 @@ const Game = {
     if(s.xuexi>0)   st.push(["学习力", s.xuexi, bar(s.xuexi,100,"#9ccc65")]);
     document.getElementById("stats").innerHTML = st.map(([l,v,b])=>
       `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div>${b}</div>`).join("");
+
+    // 当前地点 / 学期（醒目）
+    const pl=this.placeLabel();
+    document.getElementById("placebar").innerHTML = pl ? `<span>📍 ${pl.p}</span><span class="term">${pl.t}</span>` : "";
 
     // 收支预警：剩余可撑月数
     let warn="";
@@ -487,6 +516,16 @@ const Game = {
     if(lt==="munich"||lt==="stuttgart"||lt==="london"){ return "第"+yr+"学期"; }
     return "第"+yr+"学年";
   },
+  // 顶部醒目地点/学期
+  placeLabel(){
+    const s=this.s, lt=s.lineType;
+    if(lt==="shanghai") return {p:"上海", t:`第 ${s.shYears||0} 年`};
+    if(s.school){
+      const emo = lt==="harbin"?"🛠":(lt==="london"?"🇬🇧":"🇩🇪");
+      return {p:emo+" "+s.school, t:this.yrLabelFor(Math.max(1,s.yearInSchool))};
+    }
+    return {p:"🏯 沧州", t:`${s.age}岁`};
+  },
   // 一年开始：硕士线先进入学期初活动
   beginYear(){
     if(this.s.lineType==="munich"||this.s.lineType==="stuttgart"){ this.s.semFlags={}; this.semesterStart(); }
@@ -512,7 +551,7 @@ const Game = {
         <div class="big"><span id="cv">40</span><small style="font-size:16px;color:var(--dim)"> 学分</small></div>
         <input type="range" id="credits" min="20" max="60" step="5" value="40"
           oninput="document.getElementById('cv').textContent=this.value">
-        <div class="hint">范围 20–60　·　修够 ${goal} 立刻毕业</div>
+        <div class="hint">范围 20–60　·　修够 ${goal} 立刻毕业${s.gpaSys==="de5"?"　·　每门课 4–6 学分":""}</div>
       </div>`,
       choices:[{t:"✅ 确定选课，分配精力", cls:"gold", f:()=>{
         const cr=+document.getElementById("credits").value;
@@ -521,35 +560,40 @@ const Game = {
     });
   },
 
+  /* 实习每点月薪（基础50欧，按当前币种折算） */
+  internMonthlyPerPoint(){ return Math.round(50 * RATES.EUR / RATES[this.s.cur]); },
+
   /* 时间精力 + 金钱 分配 */
   allocateYear(credits, yrLabel){
     const s=this.s;
-    const TIME=100;
+    const careerOK = s.career>=20;
     const cats=[
       {k:"study", nm:"学习", sub:"提升通过率·绩点"},
-      {k:"intern", nm:"实习", sub:"事业度·实习机会"},
-      {k:"work",   nm:"打工", sub:"稳定低收入"},
-      {k:"sleep",  nm:"睡眠", sub:"保命·护健康"},
+      {k:"intern", nm:"实习", sub: careerOK?`已开启 · 每点≈${cursym()}${fmt(this.internMonthlyPerPoint())}/月`:`无偿积累(事业度<20)`},
+      {k:"work",   nm:"打工", sub:"稳定低收入·事业度"},
       {k:"friend", nm:"交友", sub:"兄弟好感·情商"},
       {k:"flirt",  nm:"把妹", sub:"情商·心情"},
     ];
-    const init={study:30,intern:0,work:0,sleep:30,friend:20,flirt:20};
+    const init={study:40,intern:0,work:0,friend:20,flirt:0};
     const E=this.econ();
     const moneyMax=Math.min(s.money, E.socMax);
+    this._allocCtx={credits, yrLabel, E, careerOK};
 
     D({
       loc:`${s.school} · ${yrLabel} · 分配`,
       lines:[
-        ["bro",`这学年咋过，全看你怎么分配这 ${TIME} 点精力——必须分完！睡太少会掉健康，搞不好直接暴毙。`],
-        ["bro",`交友、把妹还能砸钱，钱+时间一起上，好感度和情商涨得更猛。\n🏠 对了，这学年基础生活费 ${E.sym}${fmt(E.live)}/月（全年 ${E.sym}${fmt(E.live*12)}），结算时自动扣。`],
+        ["bro",`精力随便分，基准是 100。超过 100 会睡眠不足、随机掉健康；没分完的当休息，按余量随机回血。`],
+        ["bro", careerOK
+          ? `你事业度已≥20，实习开启赚钱模式！每点实习≈${cursym()}${fmt(this.internMonthlyPerPoint())}/月。\n🏠 本学期生活费 ${E.sym}${fmt(E.live)}/月。`
+          : `事业度还没到 20，实习只能无偿攒经验（涨事业度）。\n🏠 本学期生活费 ${E.sym}${fmt(E.live)}/月。`],
       ],
       extra:`<div class="alloc" id="alloc">
         ${cats.map(c=>`<div class="row">
           <div class="nm">${c.nm}<small>${c.sub}</small></div>
-          <input type="range" min="0" max="${TIME}" step="5" value="${init[c.k]}" data-k="${c.k}" oninput="Game._allocSync()">
+          <input type="range" min="0" max="100" step="5" value="${init[c.k]}" data-k="${c.k}" oninput="Game._allocSync()">
           <div class="amt" id="amt_${c.k}">${init[c.k]}</div>
         </div>`).join("")}
-        <div class="pool">剩余精力 <b id="poolLeft">0</b></div>
+        <div class="pool">已用精力 <b id="poolUsed">0</b> / 100　<span id="sleepNote"></span></div>
       </div>
       <div class="alloc">
         <div style="font-size:13px;margin-bottom:4px">💰 投入金钱（社交花销）</div>
@@ -559,33 +603,67 @@ const Game = {
         <div class="row"><div class="nm">把妹花钱</div>
           <input type="range" min="0" max="${moneyMax}" step="${E.socStep}" value="0" data-m="flirt" oninput="Game._moneySync()">
           <div class="amt" id="m_flirt">0</div></div>
-        <div class="pool">本学年社交花费 <b id="moneySpend">${E.sym}0</b>　/　可用 ${E.sym}${fmt(s.money)}</div>
-      </div>`,
-      choices:[{t:"🎲 确定，开始这一年", cls:"gold", id:"goBtn", f:()=>{
-        const alloc={}; let sum=0;
-        document.querySelectorAll('#alloc input').forEach(i=>{alloc[i.dataset.k]=+i.value; sum+=+i.value;});
-        if(sum!==TIME){ this.toast("精力必须正好分配完！剩余 "+(TIME-sum)); return; }
-        const ms={}; document.querySelectorAll('input[data-m]').forEach(i=>ms[i.dataset.m]=+i.value);
-        this.resolveYear(credits, alloc, ms, yrLabel);
-      }}]
+        <div class="pool">社交花费 <b id="moneySpend">${E.sym}0</b>　/　可用 ${E.sym}${fmt(s.money)}</div>
+      </div>
+      <div class="budget" id="budget"></div>`,
+      choices:[
+        {t:"🎲 确定，开始这一学期", cls:"gold", id:"goBtn", f:()=>{
+          const alloc=this._readAlloc(); const ms=this._readMoney();
+          const proj=this._projectBudget(alloc, ms);
+          if(proj.endBal<0){ this.toast("⚠️ 资金不足，撑不到学期末！请增加打工/实习或减少社交开销"); return; }
+          this.resolveYear(credits, alloc, ms, yrLabel);
+        }},
+        {t:"🚪 实在撑不住，退学", sub:"放弃学业另谋出路", cls:"danger", f:()=>{
+          D({loc:"抉择",
+            lines:[["you","撑不下去了……真要退学吗？","think"]],
+            choices:[{t:"确认退学", cls:"danger", f:()=>this.afterSchoolFail()},
+                     {t:"↩ 返回继续分配", f:()=>this.allocateYear(credits, yrLabel)}]});
+        }}
+      ]
     });
     this._allocSync(); this._moneySync();
   },
+  _readAlloc(){ const a={study:0,intern:0,work:0,friend:0,flirt:0};
+    document.querySelectorAll('#alloc input').forEach(i=>a[i.dataset.k]=+i.value); return a; },
+  _readMoney(){ const m={friend:0,flirt:0};
+    document.querySelectorAll('input[data-m]').forEach(i=>m[i.dataset.m]=+i.value); return m; },
+  _projectBudget(alloc, money){
+    const s=this.s; const E=this._allocCtx.E;
+    const workInc = alloc.work>0 ? Math.round(alloc.work*E.workRate + (E.workRand[0]+E.workRand[1])/2) : 0;
+    const internInc = (s.career>=20 && alloc.intern>0) ? alloc.intern*this.internMonthlyPerPoint()*12 : 0;
+    const social = (money.friend||0)+(money.flirt||0);
+    const living = E.live*12;
+    const income = workInc + internInc;
+    const expense = living + social;
+    return {workInc, internInc, social, living, income, expense, endBal: s.money + income - expense};
+  },
   _allocSync(){
-    let sum=0; const TIME=100;
-    document.querySelectorAll('#alloc input').forEach(i=>{
-      sum+=+i.value; document.getElementById("amt_"+i.dataset.k).textContent=i.value;
-    });
-    const left=TIME-sum;
-    const el=document.getElementById("poolLeft");
-    el.textContent=left; el.style.color = left===0?"var(--green)":(left<0?"var(--red)":"var(--gold)");
+    let used=0;
+    document.querySelectorAll('#alloc input').forEach(i=>{ used+=+i.value; document.getElementById("amt_"+i.dataset.k).textContent=i.value; });
+    document.getElementById("poolUsed").textContent=used;
+    const note=document.getElementById("sleepNote");
+    if(used>100) note.innerHTML=`<span style="color:var(--red)">超 ${used-100}%·睡眠不足⚠️</span>`;
+    else if(used<100) note.innerHTML=`<span style="color:var(--green)">余 ${100-used}%·可休息回血</span>`;
+    else note.innerHTML=`<span style="color:var(--gold)">刚好</span>`;
+    this._budgetSync();
   },
   _moneySync(){
-    let sum=0;
-    document.querySelectorAll('input[data-m]').forEach(i=>{
-      sum+=+i.value; document.getElementById("m_"+i.dataset.m).textContent=cursym()+fmt(+i.value);
-    });
-    document.getElementById("moneySpend").textContent=cursym()+fmt(sum);
+    document.querySelectorAll('input[data-m]').forEach(i=>{ document.getElementById("m_"+i.dataset.m).textContent=cursym()+fmt(+i.value); });
+    const m=this._readMoney();
+    document.getElementById("moneySpend").textContent=cursym()+fmt((m.friend||0)+(m.flirt||0));
+    this._budgetSync();
+  },
+  _budgetSync(){
+    const el=document.getElementById("budget"); if(!el||!this._allocCtx) return;
+    const p=this._projectBudget(this._readAlloc(), this._readMoney());
+    const sym=cursym();
+    const bad=p.endBal<0;
+    el.innerHTML=
+      `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b>`+
+      `<small>（实习 ${sym}${fmt(p.internInc)} · 打工 ${sym}${fmt(p.workInc)}）</small></div>`+
+      `<div class="brow">📉 预计开支　<b style="color:var(--red)">-${sym}${fmt(p.expense)}</b>`+
+      `<small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}）</small></div>`+
+      `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ❌ 资金不足，无法开学':' ✅'}</div>`;
   },
 
   /* 结算一个学年 */
@@ -596,33 +674,62 @@ const Game = {
     s.money-=moneySpent;
 
     const logs=[];
+    const isCn = s.gpaSys==="cn100";
 
-    // ---- 通过 / 挂科 ----
-    // 通过率：基础 + 学习精力，学分越多越难
-    const studyW=alloc.study/100;        // 0..1
-    const load=(credits-20)/40;          // 0..1 学分负荷
-    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400;
-    passRate=clamp(passRate,0.15,0.98);
-    let passed=0;
-    for(let i=0;i<credits;i+=2){ if(Math.random()<passRate) passed+=2; }
-    passed=Math.min(passed,credits);
-    const failed=credits-passed;
-    s.creditsEarned+=passed; s.creditsFailed+=failed;
-    logs.push(`📚 选 ${credits} 学分 → 通过 <b style="color:var(--green)">${passed}</b>，挂科 <b style="color:var(--red)">${failed}</b>（通过率约 ${Math.round(passRate*100)}%）`);
+    // ---- 通过率（含学校难度修正 + 学习力 + 随机扰动） ----
+    const studyW=alloc.study/100;
+    const load=(credits-20)/40;
+    const easyLines={braunschweig:0.14, stuttgart:0.14, london:0.14}; // 这些学校更好过
+    const diffBonus = easyLines[s.lineType]||0;
+    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400 + diffBonus;
+    passRate=clamp(passRate,0.15,0.99);
+    // 绩点基准（高=好）
+    const gpaBaseCn = 55 + studyW*40 - load*22 + (s.xuexi||0)*0.12 + diffBonus*40;
+    const gpaBaseDe = 2.0 + studyW*2.6 - load*1.4 + (s.xuexi||0)*0.008 + diffBonus*1.2;
 
-    // ---- 打工 / 实习 收入 ----
+    // ---- 学分 / 成绩结算 ----
+    let courseData=null;
+    if(isCn){
+      let passed=0;
+      for(let i=0;i<credits;i+=2){ if(Math.random()<passRate) passed+=2; }
+      passed=Math.min(passed,credits);
+      const failed=credits-passed;
+      s.creditsEarned+=passed; s.creditsFailed+=failed;
+      logs.push(`📚 选 ${credits} 学分 → 通过 <b style="color:var(--green)">${passed}</b>，挂科 <b style="color:var(--red)">${failed}</b>（通过率约 ${Math.round(passRate*100)}%）`);
+    } else {
+      // 德国：拆成 4-6 学分的课程，逐门判定
+      const courses=[]; let remain=credits;
+      while(remain>0){ let c=Math.min(remain, rand(4,6)); if(remain-c>0 && remain-c<4) c=remain; courses.push({cr:c}); remain-=c; }
+      let passed=0, failed=0, gsum=0;
+      courses.forEach((c,idx)=>{
+        const pass=Math.random()<passRate;
+        let grade;
+        if(pass){ grade=clamp(gpaBaseDe + (Math.random()*0.8-0.4), 1.0, 5.0); passed+=c.cr; }
+        else { grade=clamp(0.5 + Math.random()*0.4, 0.0, 0.9); failed+=c.cr; }
+        c.pass=pass; c.grade=Math.round(grade*10)/10; c.name=`课程 ${idx+1}`;
+        gsum+=c.grade;
+      });
+      const semGpa=Math.round(gsum/courses.length*10)/10;
+      s.creditsEarned+=passed; s.creditsFailed+=failed;
+      s.gpaTotal+=semGpa; s.gpaCount++; s.lastGpa=semGpa;
+      courseData={courses, passed, failed, semGpa};
+    }
+
+    // ---- 打工 / 实习 收入 + 事业度 ----
     if(alloc.work>0){
       const inc=Math.round(alloc.work*E.workRate + rand(E.workRand[0],E.workRand[1]));
-      s.money+=inc; logs.push(`🧹 打工到手 +${E.sym}${fmt(inc)}`);
+      s.money+=inc; s.career=clamp(s.career+Math.round(alloc.work*0.1),0,100);
+      logs.push(`🧹 打工到手 +${E.sym}${fmt(inc)}（事业度微涨）`);
     }
     if(alloc.intern>0){
-      s.career=clamp(s.career+Math.round(alloc.intern*0.3),0,100);
-      const landProb=clamp(0.2+alloc.intern/100*0.7+s.career/300,0,0.95);
-      if(Math.random()<landProb){
-        const inc=Math.round(alloc.intern*E.internRate + rand(E.internRand[0],E.internRand[1]));
-        s.money+=inc; logs.push(`💼 拿到实习 offer！实习收入 +${E.sym}${fmt(inc)}，事业度 ↑`);
-      }else{
-        logs.push(`💼 投了不少实习，可惜没下文（事业度仍 ↑）`);
+      const cBefore=s.career;
+      s.career=clamp(s.career+Math.round(alloc.intern*0.35),0,100);
+      if(cBefore>=20){
+        const per=this.internMonthlyPerPoint();
+        const inc=Math.round(alloc.intern*per*12*(0.85+Math.random()*0.3)); // 随机浮动
+        s.money+=inc; logs.push(`💼 实习收入 +${E.sym}${fmt(inc)}（事业度↑）`);
+      } else {
+        logs.push(`💼 无偿实习攒经验，事业度 ${cBefore}→${s.career}${s.career>=20?"（已达20，下学期可赚钱！）":""}`);
       }
     }
 
@@ -636,20 +743,21 @@ const Game = {
       if(g>0){ s.eq=clamp(s.eq+g,0,100); logs.push(`💘 把妹历练，情商 +${g}`); }
     }
 
-    // ---- 全年基础生活成本 ----
+    // ---- 基础生活成本 ----
     const livingYr=E.live*12;
     s.money=Math.max(0,s.money-livingYr);
-    logs.push(`🏠 全年基础生活开销 -${E.sym}${fmt(livingYr)}（${E.sym}${fmt(E.live)}/月）`);
+    logs.push(`🏠 学期生活开销 -${E.sym}${fmt(livingYr)}`);
 
-    // ---- 睡眠 / 健康 ----
-    s.age++; // 一年过去
-    let hpDelta = -rand(1,4); // 年龄自然下降
-    if(alloc.sleep<20){
-      const drop=rand(8,22); hpDelta-=drop;
-      logs.push(`😵 睡眠严重不足，健康 -${drop}`);
-    }else if(alloc.sleep<35){
-      const drop=rand(2,8); hpDelta-=drop;
-      logs.push(`🥱 睡眠偏少，健康 -${drop}`);
+    // ---- 睡眠平衡：精力总量决定健康 ----
+    s.age++;
+    const used=(alloc.study||0)+(alloc.intern||0)+(alloc.work||0)+(alloc.friend||0)+(alloc.flirt||0);
+    let hpDelta=-rand(0,2); // 年龄自然小幅下降
+    if(used>100){
+      const deficit=used-100, drop=Math.round(deficit*(rand(20,50)/100));
+      hpDelta-=drop; logs.push(`😵 精力透支 ${deficit}%，睡眠不足，健康 -${drop}`);
+    } else if(used<100){
+      const surplus=100-used, heal=Math.round(surplus*(rand(10,35)/100));
+      hpDelta+=heal; logs.push(`😴 余力 ${surplus}%，休整恢复，健康 +${heal}`);
     }
     s.health=clamp(s.health+hpDelta,0,100);
 
@@ -663,32 +771,60 @@ const Game = {
     this.render();
 
     // ---- 暴毙判定 ----
-    if(s.health<=12 && Math.random()<0.5){
-      return this.spinGpa(credits, alloc, yrLabel, logs, ()=>this.endingDeath());
-    }
-    if(s.health<=0){
-      return this.endingDeath();
-    }
-
-    // ---- 绩点轮盘 ----
-    this.spinGpa(credits, alloc, yrLabel, logs, ()=>this.yearSummary(yrLabel, logs));
+    const reveal = isCn
+      ? (done)=>this.spinGpa(credits, alloc, yrLabel, logs, done, {gpaBaseCn})
+      : (done)=>this.revealCoursesDE(courseData, yrLabel, logs, done);
+    if(s.health<=12 && Math.random()<0.5) return reveal(()=>this.endingDeath());
+    if(s.health<=0) return this.endingDeath();
+    reveal(()=>this.yearSummary(yrLabel, logs));
   },
 
-  /* 绩点轮盘：少学分+多时间 → 更高绩点 */
-  spinGpa(credits, alloc, yrLabel, logs, done){
+  /* 德国：逐门公布成绩（紧张感）+ 学期/总平均 */
+  revealCoursesDE(data, yrLabel, logs, done){
+    this._scene="studyYear";
+    const s=this.s;
+    const rows=data.courses.map((c,i)=>
+      `<div class="crow" id="crow_${i}"><span class="cn">${c.name}（${c.cr}学分）</span>`+
+      `<span class="cg" id="cg_${i}">…</span></div>`).join("");
+    D({loc:`${s.school} · ${yrLabel} · 成绩公布`,
+      lines:[["prof2","成绩出来了，一门一门看吧——别紧张。",{big:true}]],
+      extra:`<div class="grades">${rows}<div class="gsum" id="gsum"></div></div>`,
+      choices:[], anim:false});
+    // 逐门揭晓
+    let i=0;
+    const step=()=>{
+      if(i>=data.courses.length){
+        const totGpa=avgGpa(s);
+        document.getElementById("gsum").innerHTML=
+          `<div class="respop">本学期：通过 <b style="color:var(--green)">${data.passed}</b> · 挂科 <b style="color:var(--red)">${data.failed}</b> 学分</div>`+
+          `<div>本学期均绩 <b style="color:var(--gold)">${data.semGpa}</b> / 5.0　·　总均绩 <b style="color:var(--gold)">${totGpa}</b> / 5.0</div>`;
+        logs.push(`📊 ${yrLabel}：通过 ${data.passed}、挂科 ${data.failed} 学分，学期均绩 ${data.semGpa}，总均绩 ${totGpa}`);
+        this.render();
+        setTimeout(done, 1300);
+        return;
+      }
+      const c=data.courses[i], el=document.getElementById("cg_"+i), row=document.getElementById("crow_"+i);
+      if(el){
+        el.innerHTML = c.pass ? `<b style="color:var(--green)">${c.grade}</b> ✅` : `<b style="color:var(--red)">${c.grade}</b> ❌挂`;
+        el.classList.add("respop"); if(row) row.classList.add("lit");
+      }
+      i++; setTimeout(step, 650);
+    };
+    setTimeout(step, 700);
+  },
+
+  /* 绩点轮盘（中国百分制）：少学分+多时间 → 更高绩点 */
+  spinGpa(credits, alloc, yrLabel, logs, done, opts){
     const s=this.s;
     const isCn = s.gpaSys==="cn100";
-    // 计算目标绩点
     const studyW=alloc.study/100, load=(credits-20)/40;
-    let gpa;
     const xb=(s.xuexi||0);
+    let gpa;
     if(isCn){
-      gpa = 55 + studyW*40 - load*22 + xb*0.12 + rand(-6,8);
-      gpa = Math.round(clamp(gpa,30,98));
+      const base = (opts&&opts.gpaBaseCn!=null) ? opts.gpaBaseCn : (55 + studyW*40 - load*22 + xb*0.12);
+      gpa = Math.round(clamp(base + rand(-6,8), 30, 98));
     }else{
-      // 德国制：本游戏统一“高=好”，0-5
-      gpa = 2.0 + studyW*2.6 - load*1.4 + xb*0.008 + (Math.random()*0.6-0.3);
-      gpa = Math.round(clamp(gpa,0.5,5.0)*10)/10;
+      gpa = Math.round(clamp(2.0 + studyW*2.6 - load*1.4 + xb*0.008 + (Math.random()*0.6-0.3), 0.5, 5.0)*10)/10;
     }
     s.gpaTotal+=gpa; s.gpaCount++; s.lastGpa=gpa;
 
@@ -1359,14 +1495,14 @@ const Game = {
     const s=this.s;
     this.setCur("GBP");
     s.money=Math.max(0, s.money-100000);
-    s.school="伦敦大学"; s.gpaSys="de5"; s.lineType="london";
-    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0; s.creditGoal=60;
+    s.school="伦敦大学学院（UCL）"; s.gpaSys="de5"; s.lineType="london";
+    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0; s.creditGoal=90;
     s.costY=24000; s.incomeY=0;
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
     this.transition({emoji:"🇬🇧", title:"伦敦留学", sub:"两学期制 · 学费£10万", color:"#58a6ff"}, ()=>{
       D({loc:"🇬🇧 伦敦 · 入学", art:"london", tw:true,
-        lines:[["env","🪪 获得【伦敦大学学生证】！学费 £100,000 已交，两学期制。"],
+        lines:[["env","🪪 获得【伦敦UCL 学生证】！学费 £100,000 已交，硕士 90 学分。"],
                ["gf","你真的来了……谢谢你，我们一起加油！",{big:true}],
                ["you","没收入，存款在烧。得撑住。","think"]],
         choices:[{t:"📚 开始伦敦学业", cls:"gold", f:()=>this.studyYear()}]});
@@ -1375,7 +1511,7 @@ const Game = {
   londonGraduate(){
     const s=this.s;
     D({loc:"🇬🇧 伦敦 · 毕业", art:"london", tw:true,
-      lines:[["env",`🎓 获得【伦敦大学毕业证】！毕业绩点 ${avgGpa(s)}/5.0。`],
+      lines:[["env",`🎓 获得【伦敦UCL 毕业证】！毕业绩点 ${avgGpa(s)}/5.0。`],
              ["you","毕业了。回上海，还是留伦敦闯虚拟币圈？","think"]],
       choices:[
         {t:"🪙 进伦敦虚拟币公司实习", sub:"£5000/月 · 需平衡工作与感情", cls:"gold", f:()=>this.startIntern()},
