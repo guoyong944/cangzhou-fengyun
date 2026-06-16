@@ -202,6 +202,19 @@
     animation:tTitle .8s ease .5s both;}
   @keyframes tTitle{from{opacity:0; transform:translateY(16px);}to{opacity:1; transform:translateY(0);}}
   #trans .tskip{position:absolute; bottom:28px; font-size:11px; color:var(--dim); animation:tTitle .6s ease 1s both;}
+
+  /* 收支预警 */
+  .balwarn{margin-top:7px; font-size:11px; line-height:1.5; color:var(--gold);
+    background:#241f10; border:1px solid #4a3f1a; border-radius:8px; padding:6px 9px;}
+  .balwarn.crit{color:var(--red); background:#2a1414; border-color:#5a2424; animation:pulseWarn 1.4s ease infinite;}
+  @keyframes pulseWarn{50%{opacity:.55;}}
+  /* 炒股面板 */
+  .stockbox{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px; text-align:center;}
+  .stockbox .amt-in{width:140px; font-size:20px; text-align:center; padding:8px; border-radius:8px;
+    background:#0a0d12; border:1px solid var(--line); color:var(--gold); font-weight:700;}
+  .reel{font-size:38px; font-weight:900; letter-spacing:2px; padding:14px; color:var(--gold);}
+  .wlbal{display:flex; gap:10px; justify-content:center; margin:8px 0; font-size:13px;}
+  .wlbal .seg{flex:1; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px;}
 </style>
 </head>
 <body>
@@ -224,6 +237,7 @@
 
 const SAVE_KEY = "cangzhou_save_v1";
 const RATE = 7.8; // 1 € ≈ 7.8 ¥
+const RATES = {CNY:1, EUR:7.8, GBP:9.0}; // 兑人民币汇率
 
 const Game = {
   s:null,
@@ -243,20 +257,31 @@ const Game = {
       // 学业(当前学校)
       school:null, gpaSys:null, // 'cn100' | 'de5'
       creditsEarned:0, creditsFailed:0, yearInSchool:0, gpaTotal:0, gpaCount:0,
+      creditGoal:120, lineType:"harbin",
+      // 进阶数值
+      wuli:0, renmai:0, xuexi:0, gfFavor:0, hasGf:false,
+      friends:{}, major:null, canStock:false, stockLoss:0, keptBaton:true,
+      job:null, incomeY:0, costY:0, semFlags:{},
     };
   },
 
   /* ---------- 货币 ---------- */
   // 各币种经济参数（收入/支出按当地货币计）
   econ(){
+    if(this.s.cur==="GBP")
+      return {sym:"£", live:2000, workRate:14, workRand:[0,140], internRate:35, internRand:[200,900],
+              tooth:[50,300], schHi:1200, schMid:500, socUnit:120, socMax:6000, socStep:200};
     return this.s.cur==="EUR"
       ? {sym:"€", live:1200, workRate:16, workRand:[0,160], internRate:40, internRand:[300,1100],
          tooth:[60,400], schHi:1500, schMid:600, socUnit:130, socMax:8000, socStep:200}
       : {sym:"¥", live:2500, workRate:120, workRand:[0,800], internRate:300, internRand:[2000,8000],
          tooth:[500,2500], schHi:8000, schMid:3000, socUnit:1000, socMax:60000, socStep:1000};
   },
-  toEUR(){ if(this.s.cur==="CNY"){ this.s.money=Math.round(this.s.money/RATE); this.s.cur="EUR"; } },
-  toCNY(){ if(this.s.cur==="EUR"){ this.s.money=Math.round(this.s.money*RATE); this.s.cur="CNY"; } },
+  // 通用换币：经人民币中转
+  setCur(target){ if(this.s.cur===target) return;
+    const cny=this.s.money*RATES[this.s.cur]; this.s.money=Math.round(cny/RATES[target]); this.s.cur=target; },
+  toEUR(){ this.setCur("EUR"); },
+  toCNY(){ this.setCur("CNY"); },
 
   /* ---------- 全屏关卡过渡动画 ---------- */
   transition(o, done){
@@ -318,13 +343,32 @@ const Game = {
       ["情商", s.eq, bar(s.eq,100,"var(--blue)")],
       ["事业度", s.career, bar(s.career,100,"var(--purple)")],
     ];
+    // 进阶数值（出现才显示）
+    if(s.hasGf)     st.push(["女友好感", s.gfFavor, bar(s.gfFavor,100,"var(--pink)")]);
+    if(s.renmai>0)  st.push(["人脉度", s.renmai, bar(s.renmai,100,"#4dd0e1")]);
+    if(s.wuli>0)    st.push(["武力值", s.wuli, bar(s.wuli,100,"var(--red)")]);
+    if(s.xuexi>0)   st.push(["学习力", s.xuexi, bar(s.xuexi,100,"#9ccc65")]);
     document.getElementById("stats").innerHTML = st.map(([l,v,b])=>
       `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div>${b}</div>`).join("");
+
+    // 收支预警：剩余可撑月数
+    let warn="";
+    if(s.costY>0){
+      const net=(s.incomeY||0)-s.costY;
+      if(net<0){
+        const months=Math.max(0,Math.floor(s.money/RATES[s.cur] / (-net*RATES[s.cur]/12)));
+        warn=`<div class="balwarn ${months<=12?'crit':''}">⚠️ 收支预警：按当前年支出 ${cursym()}${fmt(s.costY)}，存款约可支撑 <b>${months}</b> 个月（资产归零将触发外卖员结局）</div>`;
+      }
+    }
+    let bw=document.getElementById("balwarn-slot");
+    if(!bw){ bw=document.createElement("div"); bw.id="balwarn-slot"; document.getElementById("topbar").appendChild(bw); }
+    bw.innerHTML=warn;
   },
 
   /* ---------- 数值变动 + 飘字 ---------- */
   change(obj){
-    const names={money:"金钱",health:"健康",bro:"兄弟好感",eq:"情商",career:"事业度",age:"年龄"};
+    const names={money:"金钱",health:"健康",bro:"兄弟好感",eq:"情商",career:"事业度",age:"年龄",
+      gfFavor:"女友好感",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
     const msgs=[];
     for(const k in obj){
       this.s[k]=(this.s[k]||0)+obj[k];
@@ -399,6 +443,7 @@ const Game = {
     this.s.school="哈工大（威海）"; this.s.gpaSys="cn100";
     this.s.creditsEarned=0; this.s.creditsFailed=0; this.s.yearInSchool=0;
     this.s.gpaTotal=0; this.s.gpaCount=0;
+    this.s.creditGoal=120; this.s.lineType="harbin";
     this.s.age=19;
     if(!this.s.studentIds.includes(this.s.school)){ this.s.studentIds.push(this.s.school); }
     this.render();
@@ -419,27 +464,39 @@ const Game = {
   /* ========================================================= */
   /* 通用：一个学年                                             */
   /* ========================================================= */
+  // 学期标签
+  yrLabelFor(yr){
+    const lt=this.s.lineType;
+    if(lt==="harbin"){ return ["大一","大二","大三","大四","大五","大六"][yr-1]||("第"+yr+"年"); }
+    if(lt==="munich"||lt==="stuttgart"||lt==="london"){ return "第"+yr+"学期"; }
+    return "第"+yr+"学年";
+  },
+  // 一年开始：硕士线先进入学期初活动
+  beginYear(){
+    if(this.s.lineType==="munich"||this.s.lineType==="stuttgart"){ this.s.semFlags={}; this.semesterStart(); }
+    else this.studyYear();
+  },
   studyYear(){
     this._scene="studyYear";
     const s=this.s;
     s.yearInSchool++;
     const yr=s.yearInSchool;
-    const cnLabels=["大一","大二","大三","大四","大五","大六"];
-    const yrLabel = s.gpaSys==="cn100" ? (cnLabels[yr-1]||("第"+yr+"年")) : ("第"+yr+"学年");
+    const yrLabel = this.yrLabelFor(yr);
+    const goal=s.creditGoal;
 
     // 学分选择
     const advisor = s.gpaSys==="de5" ? "prof2" : "prof";
     D({
       loc:`${s.school} · ${yrLabel}`, art:"study",
       lines:[
-        ["env",`已修学分 ${s.creditsEarned}/120　·　累计挂科 ${s.creditsFailed}/30`],
-        [advisor, `${yrLabel}选课了。学分越多毕业越快，可越难拿高绩点、也越容易挂科。这学年，你报多少学分？`],
+        ["env",`已修学分 ${s.creditsEarned}/${goal}　·　累计挂科 ${s.creditsFailed}/30`],
+        [advisor, `${yrLabel}选课了。学分越多毕业越快，可越难拿高绩点、也越容易挂科。这学期，你报多少学分？`],
       ],
       extra:`<div class="credit-pick">
         <div class="big"><span id="cv">40</span><small style="font-size:16px;color:var(--dim)"> 学分</small></div>
         <input type="range" id="credits" min="20" max="60" step="5" value="40"
           oninput="document.getElementById('cv').textContent=this.value">
-        <div class="hint">范围 20–60　·　修够 120 立刻毕业</div>
+        <div class="hint">范围 20–60　·　修够 ${goal} 立刻毕业</div>
       </div>`,
       choices:[{t:"✅ 确定选课，分配精力", cls:"gold", f:()=>{
         const cr=+document.getElementById("credits").value;
@@ -528,7 +585,7 @@ const Game = {
     // 通过率：基础 + 学习精力，学分越多越难
     const studyW=alloc.study/100;        // 0..1
     const load=(credits-20)/40;          // 0..1 学分负荷
-    let passRate = 0.6 + studyW*0.55 - load*0.3;
+    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400;
     passRate=clamp(passRate,0.15,0.98);
     let passed=0;
     for(let i=0;i<credits;i+=2){ if(Math.random()<passRate) passed+=2; }
@@ -608,12 +665,13 @@ const Game = {
     // 计算目标绩点
     const studyW=alloc.study/100, load=(credits-20)/40;
     let gpa;
+    const xb=(s.xuexi||0);
     if(isCn){
-      gpa = 55 + studyW*40 - load*22 + rand(-6,8);
+      gpa = 55 + studyW*40 - load*22 + xb*0.12 + rand(-6,8);
       gpa = Math.round(clamp(gpa,30,98));
     }else{
       // 德国制：本游戏统一“高=好”，0-5
-      gpa = 2.0 + studyW*2.6 - load*1.4 + (Math.random()*0.6-0.3);
+      gpa = 2.0 + studyW*2.6 - load*1.4 + xb*0.008 + (Math.random()*0.6-0.3);
       gpa = Math.round(clamp(gpa,0.5,5.0)*10)/10;
     }
     s.gpaTotal+=gpa; s.gpaCount++; s.lastGpa=gpa;
@@ -691,20 +749,22 @@ const Game = {
         choices:[{t:"…接受现实", cls:"danger", f:()=>this.afterSchoolFail()}]});
     }
 
-    // 毕业条件：修满120 或 读满4年
-    const enoughCredits = s.creditsEarned>=120;
-    const enoughYears = s.yearInSchool>=4;
+    // 毕业条件：修满目标学分 或 读满规定年限
+    const goal=s.creditGoal;
+    const yearCap = s.lineType==="harbin" ? 4 : 2; // 本科4年 / 硕士·伦敦2学期
+    const enoughCredits = s.creditsEarned>=goal;
+    const enoughYears = s.yearInSchool>=yearCap;
     const canGraduate = enoughCredits || enoughYears;
 
     const choices=[];
     if(canGraduate){
       choices.push({t:"🎓 毕业！", sub:`已修 ${s.creditsEarned} 学分`, cls:"gold", f:()=>this.graduate()});
     }else{
-      choices.push({t:`📚 继续读（升入下一学年）`, sub:`距毕业还差 ${Math.max(0,120-s.creditsEarned)} 学分`, f:()=>this.studyYear()});
+      choices.push({t:`📚 继续读（升入下一学期）`, sub:`距毕业还差 ${Math.max(0,goal-s.creditsEarned)} 学分`, f:()=>this.beginYear()});
     }
     choices.push({t:"🚪 主动退学", sub:"放弃学业", cls:"danger", f:()=>this.confirmDropout()});
 
-    const statusLine=`已修学分 ${s.creditsEarned}/120　·　累计挂科 ${s.creditsFailed}/30　·　平均绩点 ${avgGpa(s)}`;
+    const statusLine=`已修学分 ${s.creditsEarned}/${goal}　·　累计挂科 ${s.creditsFailed}/30　·　平均绩点 ${avgGpa(s)}`;
     D({loc:`${s.school} · ${yrLabel} 结算`,
       lines:[[advisor, canGraduate
         ? `了不起啊！${statusLine}。你已经够格毕业了——接下来打算怎么走？`
@@ -721,9 +781,45 @@ const Game = {
                {t:"↩ 再读一年", f:()=>this.studyYear()}]});
   },
 
-  /* 退学 / 毕业未走红旗 后的去向 */
+  /* 退学 / 毕业未走红旗 后的去向（按线路分流） */
   afterSchoolFail(){
     this._scene="afterSchoolFail";
+    const lt=this.s.lineType;
+    const goCangzhou={t:"🏯 回沧州", sub:"认命", cls:"danger", f:()=>this.endingFactoryDog(
+      "你回到了沧州，进了那家熟悉的工厂。流水线的灯，二十四小时不灭。")};
+
+    if(lt==="munich"){
+      return D({loc:"慕尼黑 · 退学", tw:true,
+        lines:[
+          ["env","你从 TUM 退学了。慕尼黑的雨，淋湿了肩膀。"],
+          ["you","学是读不下去了……转学，还是直接回国闯？","think"],
+        ],
+        choices:[
+          {t:"🏰 转学斯图加特大学", sub:"换个学校重启", cls:"gold", f:()=>this.enterStuttgart()},
+          {t:"🌃 直接去上海闯荡", sub:"上海支线 · 进车企", f:()=>this.enterShanghai("car")},
+          goCangzhou
+        ]});
+    }
+    if(lt==="stuttgart"){
+      return D({loc:"斯图加特 · 退学", tw:true,
+        lines:[
+          ["env","你离开了斯图加特。"],
+          ["you","没文凭，也得活下去。去上海试试？","think"],
+        ],
+        choices:[
+          {t:"🌃 去上海闯荡", sub:"上海支线 · 进车企", cls:"gold", f:()=>this.enterShanghai("car")},
+          goCangzhou
+        ]});
+    }
+    if(lt==="braunschweig"){
+      return D({loc:"不伦瑞克 · 退学",
+        lines:[["env","你从不伦瑞克退学了。"],["you","下一步往哪走？","think"]],
+        choices:[
+          {t:"🌃 去上海闯荡", sub:"上海支线 · 进车企", cls:"gold", f:()=>this.enterShanghai("car")},
+          goCangzhou
+        ]});
+    }
+    // 本科哈工大
     D({loc:"人生岔路",
       lines:[
         ["env","你离开了校园。"],
@@ -731,8 +827,7 @@ const Game = {
         ["you","下一步，往哪走？","think"],
       ],
       choices:[
-        {t:"🏯 回沧州", sub:"认命", cls:"danger", f:()=>this.endingFactoryDog(
-          "你回到了沧州，进了那家熟悉的工厂。流水线的灯，二十四小时不灭。")},
+        goCangzhou,
         {t:"✈️ 远赴德国，重读本科", sub:"不伦瑞克工业大学", cls:"gold", f:()=>this.enterBraunschweig()}
       ]});
   },
@@ -741,10 +836,10 @@ const Game = {
     const s=this.s;
     if(!s.diplomas.includes(s.school)) s.diplomas.push(s.school);
     this.render();
+    const lt=s.lineType;
 
-    // 哈工大毕业：可走红旗支线
-    if(s.school==="哈工大（威海）"){
-      this.s.flags.harbinGrad=true;
+    if(lt==="harbin"){
+      s.flags.harbinGrad=true;
       this.transition({emoji:"🎓", title:"哈工大 毕业！", sub:"关卡通过 · 学士加冕", color:"#ffcc4d"}, ()=>{
         D({loc:`${s.school} · 毕业典礼`, art:"harbin", tw:true,
           lines:[
@@ -760,10 +855,18 @@ const Game = {
           ]});
       });
     }
-    // 不伦瑞克毕业：申硕
-    else if(s.school==="不伦瑞克工业大学"){
-      this.s.flags.brGrad=true;
+    else if(lt==="braunschweig"){
+      s.flags.brGrad=true;
       this.transition({emoji:"🎓", title:"不伦瑞克 毕业！", sub:"关卡通过 · 学成在即", color:"#ffcc4d"}, ()=>this.afterBraunschweig());
+    }
+    else if(lt==="munich"){
+      this.transition({emoji:"🎓", title:"慕尼黑 毕业！", sub:"关卡通过 · 硕士加冕", color:"#ffcc4d"}, ()=>this.munichGraduate());
+    }
+    else if(lt==="stuttgart"){
+      this.transition({emoji:"🎓", title:"斯图加特 毕业！", sub:"关卡通过 · 硕士加冕", color:"#ffcc4d"}, ()=>this.stuttgartGraduate());
+    }
+    else if(lt==="london"){
+      this.transition({emoji:"🎓", title:"伦敦 毕业！", sub:"关卡通过 · 学成", color:"#ffcc4d"}, ()=>this.londonGraduate());
     }
   },
 
@@ -774,6 +877,7 @@ const Game = {
     const s=this.s;
     s.school="不伦瑞克工业大学"; s.gpaSys="de5";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
+    s.creditGoal=120; s.lineType="braunschweig";
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     const before=s.money;
     this.toEUR(); // 资金兑换为欧元
@@ -803,7 +907,7 @@ const Game = {
       choices:[
         {t:"🎓 申请硕士", sub:"慕尼黑 / 斯图加特", cls:"gold", f:()=>this.applyMaster()},
         {t:"🚩 回国进红旗", sub:"红旗支线", f:()=>this.endingHongqi()},
-        {t:"🌃 去上海闯荡", sub:"上海支线", f:()=>this.endingShanghai()}
+        {t:"🌃 去上海闯荡", sub:"上海支线 · 进车企", f:()=>this.enterShanghai("car")}
       ]});
   },
 
@@ -830,49 +934,484 @@ const Game = {
               ],
               choices:[{t:"🏰 接受斯图加特 offer", f:()=>this.enterStuttgart()},
                        {t:"🚩 回国进红旗", f:()=>this.endingHongqi()},
-                       {t:"🌃 去上海闯荡", f:()=>this.endingShanghai()}]});
+                       {t:"🌃 去上海闯荡", f:()=>this.enterShanghai("car")}]});
           }
         }},
         {t:"🏰 稳进斯图加特（司徒）", sub:"100% offer · 学费€1500/学期", f:()=>this.enterStuttgart()}
       ]});
   },
 
+  /* ===================== 慕尼黑硕士线（90学分） ===================== */
   enterMunich(){
     const s=this.s;
-    s.school="慕尼黑工业大学";
+    s.school="慕尼黑工业大学"; s.gpaSys="de5";
+    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
+    s.creditGoal=90; s.lineType="munich";
+    s.setupGf=true;
+    if(!s.hasGf){ s.hasGf=true; s.gfFavor=65; }
+    this.setCur("EUR");
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
     this.transition({emoji:"🦁", title:"慕尼黑工大 TUM", sub:"关卡通过 · 名校录取", color:"#ffcc4d"}, ()=>{
-      D({loc:"🇩🇪 慕尼黑 · 序章", art:"munich", tw:true,
+      D({loc:"🇩🇪 慕尼黑 · 硕士序章", art:"munich", tw:true,
         lines:[
-          ["env","🪪 获得【慕尼黑工业大学学生证】！啤酒节的喧嚣，宝马总部的霓虹。"],
-          ["bro","兄弟，慕尼黑欢迎你！这边机会多得是，咱的故事才刚开头呢。",{big:true}],
-          ["env","📌 慕尼黑故事线：未完待续（敬请期待后续更新）"],
+          ["env","🪪 获得【慕尼黑工业大学学生证】！硕士项目：90 学分，德国绩点。"],
+          ["gf","到慕尼黑啦？我在汉堡这边也快毕业咯，加油读书，别太想我～",{big:true}],
+          ["you","异地恋 + 读研，时间和钱都得算计着花。","think"],
+        ],
+        choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
+    });
+  },
+
+  munichGraduate(){
+    const s=this.s;
+    D({loc:"慕尼黑 · 毕业", art:"munich", tw:true,
+      lines:[
+        ["env",`🎓 获得【慕尼黑工业大学硕士毕业证】！毕业绩点 ${avgGpa(s)}/5.0。`],
+        ["you","TUM 的牌子够硬，回上海进车企，应该不难。","think"],
+      ],
+      choices:[
+        {t:"🌃 回上海发展", sub:"上海支线 · 进车企", cls:"gold", f:()=>this.enterShanghai("car")},
+        {t:"🚩 回国进红旗", sub:"红旗支线", f:()=>this.endingHongqi()}
+      ]});
+  },
+
+  /* ===================== 斯图加特硕士线（90学分 + 专业方向） ===================== */
+  enterStuttgart(){
+    const s=this.s;
+    s.school="斯图加特大学（司徒）"; s.gpaSys="de5";
+    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
+    s.creditGoal=90; s.lineType="stuttgart";
+    if(!s.hasGf){ s.hasGf=true; s.gfFavor=65; }
+    this.setCur("EUR");
+    s.money=Math.max(0,s.money-1500);
+    if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
+    this.render();
+    this.transition({emoji:"🏰", title:"斯图加特 · 司徒", sub:"关卡通过 · 入学", color:"#4dd0e1"}, ()=>{
+      D({loc:"🇩🇪 斯图加特 · 选专业", art:"stuttgart", tw:true,
+        lines:[
+          ["env","🪪 获得【斯图加特大学学生证】！缴纳学费 €1500。硕士 90 学分。"],
+          ["prof2","保时捷与奔驰的故乡。选个方向吧——电车，还是自动驾驶？",{big:true}],
         ],
         choices:[
-          {t:"🌃 暂别校园，去上海闯荡", f:()=>this.endingShanghai()},
-          {t:"🚩 回国进红旗", f:()=>this.endingHongqi()}
+          {t:"🔋 电车类", sub:"对口车企，稳", f:()=>this.pickMajor("ev")},
+          {t:"🤖 自动驾驶", sub:"对口量化机构，且习得「炒股」技能", cls:"gold", f:()=>this.pickMajor("ad")}
         ]});
     });
   },
 
-  enterStuttgart(){
+  pickMajor(m){
+    const s=this.s; s.major=m;
+    const lines=[["env",`你选择了【${m==="ev"?"电车类":"自动驾驶"}】方向。`]];
+    if(m==="ad"){ s.canStock=true; lines.push(["prof2","自动驾驶玩的是数据与算法——量化机构最爱。顺带，你点亮了新技能「📈 炒股」，每学期初可投资理财。",{big:true}]); }
+    else { lines.push(["prof2","电车方向扎实，毕业进车企对口。好好干。",{big:true}]); }
+    lines.push(["you","方向定了，开整！","think"]);
+    D({loc:"斯图加特 · 开学", art:"stuttgart", tw:true, lines,
+      choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
+  },
+
+  stuttgartGraduate(){
     const s=this.s;
-    s.school="斯图加特大学（司徒）";
-    if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
-    s.money=Math.max(0,s.money-1500); this.render();
-    this.transition({emoji:"🏰", title:"斯图加特 · 司徒", sub:"关卡通过 · 稳妥入学", color:"#4dd0e1"}, ()=>{
-      D({loc:"🇩🇪 斯图加特（司徒） · 序章", art:"stuttgart", tw:true,
+    // 毕业告别：甩棍是否留给非子
+    const metFeizi = !!s.friends.feizi;
+    const finish=(toShanghai)=>{
+      const job = s.major==="ad" ? "quant" : "car";
+      this.enterShanghai(job);
+    };
+    const batonChoice = (s.hasBaton && metFeizi) ? [
+      {t:"🥢 把甩棍留给非子", sub:"兄弟好感↑，武力值↓", cls:"gold", f:()=>{
+        s.hasBaton=false; s.keptBaton=false; this.change({bro:12, wuli:-15}); this.render();
+        this.toast("甩棍传承给了非子 🥷"); this._stuttFarewell();
+      }},
+      {t:"🥢 自己保留甩棍", sub:"防身要紧", f:()=>{ s.keptBaton=true; this._stuttFarewell(); }}
+    ] : null;
+
+    D({loc:"斯图加特 · 毕业", art:"stuttgart", tw:true,
+      lines:[
+        ["env",`🎓 获得【斯图加特大学硕士毕业证】！毕业绩点 ${avgGpa(s)}/5.0，方向：${s.major==="ev"?"电车类":"自动驾驶"}。`],
+        metFeizi?["feizi","哥，你要回国了啊……那根甩棍，跟你出生入死，要不……留个念想给兄弟？",{big:true}]
+                :["you","收拾行李，准备回国发展。","think"],
+      ],
+      choices: batonChoice || [
+        {t:"🌃 回上海发展", sub: s.major==="ad"?"上海支线 · 进量化机构":"上海支线 · 进车企", cls:"gold",
+          f:()=>finish()},
+      ]});
+  },
+  _stuttFarewell(){
+    const s=this.s;
+    const job = s.major==="ad" ? "quant" : "car";
+    D({loc:"斯图加特 · 启程",
+      lines:[["you","德国的日子，结束了。回上海，闯一闯。","think"]],
+      choices:[{t: s.major==="ad"?"🌃 回上海 · 进量化机构":"🌃 回上海 · 进车企", cls:"gold", f:()=>this.enterShanghai(job)}]});
+  },
+
+  /* ===================== 学期初活动 ===================== */
+  semesterStart(){
+    this._scene="semesterStart";
+    const s=this.s; const E=this.econ(); const f=s.semFlags||(s.semFlags={});
+    const cost=Math.round(E.live*0.06);
+    const lines=[["bro",`${this.yrLabelFor(s.yearInSchool+1)}开学前，要不要搞点活动？花钱花精力，也可能结识新朋友。`,{big:true}]];
+    const choices=[];
+    if(s.lineType==="munich" && s.hasGf && !s.flags.hamburgDone)
+      choices.push({t:"🚄 去汉堡参加女友毕业典礼", sub:"消耗金钱 · 不去恐分手", cls:"gold", f:()=>this.hamburgEvent()});
+    if(!f.huoguo)  choices.push({t:`🍲 兄弟火锅（${E.sym}${fmt(cost)}）`, sub:"兄弟好感↑ · 可能结识猛人", f:()=>this.doActivity("hot")});
+    if(!f.shaokao) choices.push({t:`🍢 兄弟烧烤（${E.sym}${fmt(cost)}）`, sub:"兄弟好感↑ · 可能结识贵人", f:()=>this.doActivity("bbq")});
+    if(s.canStock && !f.stock) choices.push({t:"📈 炒股投资", sub:"高风险高回报", f:()=>this.stockGame(()=>this.semesterStart())});
+    if(Object.keys(s.friends).length>0) choices.push({t:"🤝 请朋友吃饭（结交）", sub:"花钱涨兄弟好感", f:()=>this.befriendScreen(()=>this.semesterStart())});
+    choices.push({t:"📚 开始上课", cls:"gold", f:()=>this.studyYear()});
+    D({loc:`${s.school} · 学期初`, lines, choices});
+  },
+
+  doActivity(kind){
+    const s=this.s; const E=this.econ();
+    const cost=Math.round(E.live*0.06);
+    s.semFlags[kind==="hot"?"huoguo":"shaokao"]=true;
+    s.money=Math.max(0,s.money-cost);
+    const broGain=rand(3,7); s.bro=clamp(s.bro+broGain,0,100);
+    s.health=clamp(s.health-rand(0,3),0,100);
+    this.render();
+    const pool = kind==="hot" ? ["xuzi","feizi","yong"] : ["kong","garf","jenny"];
+    const unmet = pool.filter(id=>!s.friends[id]);
+    const meetProb = clamp(0.45 + s.renmai/200, 0.45, 0.92);
+    if(unmet.length && Math.random()<meetProb){
+      return this.meetPerson(unmet[rand(0,unmet.length-1)], kind, cost, broGain);
+    }
+    D({loc:`${s.school} · ${kind==="hot"?"兄弟火锅":"兄弟烧烤"}`,
+      lines:[["env",`一顿${kind==="hot"?"火锅":"烧烤"}下肚，花了 ${E.sym}${fmt(cost)}，兄弟好感 +${broGain}。`],
+             ["you","下次再聚！","think"]],
+      choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
+  },
+
+  meetPerson(id, kind, cost, broGain){
+    const s=this.s; const p=PEOPLE[id];
+    s.friends[id]={fav:10};
+    for(const k in p.get){ s[k]=clamp((s[k]||0)+p.get[k],0,100); }
+    this.render();
+    D({loc:"🤝 结识新朋友", tw:true,
+      lines:[
+        ["env",`一顿${kind==="hot"?"火锅":"烧烤"}（${cursym()}${fmt(cost)}），兄弟好感 +${broGain}。席间认识了新朋友——`],
+        [id, p.intro, {big:true}],
+        ["you",`结识【${p.nm}】！（${gainText(p.get)}）`,"think"],
+      ],
+      choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
+  },
+
+  befriendScreen(back){
+    const s=this.s; const E=this.econ(); const cost=Math.round(E.live*0.1);
+    const names=Object.keys(s.friends).map(id=>PEOPLE[id].nm).join("、");
+    D({loc:"🤝 结交朋友",
+      lines:[["you",`请兄弟们（${names}）搓一顿，加深感情。`,"think"]],
+      choices:[
+        {t:`🍻 请客（${E.sym}${fmt(cost)}）`, cls:"gold", f:()=>{
+          if(s.money<cost){ this.toast("钱不够"); return; }
+          s.money-=cost; const g=rand(4,9);
+          s.bro=clamp(s.bro+g,0,100); s.renmai=clamp(s.renmai+rand(1,3),0,100);
+          this.render(); this.toast(`兄弟好感 +${g}`); back();
+        }},
+        {t:"↩ 返回", f:back}
+      ]});
+  },
+
+  hamburgEvent(){
+    const s=this.s; const E=this.econ(); const cost=800;
+    D({loc:"中间事件 · 汉堡", tw:true,
+      lines:[
+        ["gf","下周我毕业典礼，你能从慕尼黑过来汉堡吗？我特别希望你在场。",{big:true}],
+        ["you",`高铁加礼物得花 ${E.sym}${fmt(cost)}。去，还是省下来？`,"think"],
+      ],
+      choices:[
+        {t:`🚄 必须去（-${E.sym}${fmt(cost)}）`, cls:"gold", f:()=>{
+          s.flags.hamburgDone=true; s.money=Math.max(0,s.money-cost); this.change({gfFavor:12}); this.render();
+          D({loc:"汉堡 · 毕业典礼", tw:true,
+            lines:[["gf","你真的来了！😭 谢谢你……",{big:true}],["you","她开心，比啥都强。","think"]],
+            choices:[{t:"↩ 回慕尼黑继续学期", f:()=>this.semesterStart()}]});
+        }},
+        {t:"💸 这次先不去", sub:"省钱，但极伤感情", cls:"danger", f:()=>{
+          s.flags.hamburgDone=true; this.change({gfFavor:-30});
+          if(s.gfFavor<50){
+            s.hasGf=false; this.render();
+            return D({loc:"💔 分手", art:"germany", tw:true,
+              lines:[["gf","我最重要的日子你都不来……我们，还是算了吧。",{big:true}],
+                     ["env","💔 你和女友分手了。"],["you","为了省那点钱……值得吗。","think"]],
+              choices:[{t:"…回慕尼黑继续学期", f:()=>this.semesterStart()}]});
+          }
+          D({loc:"中间事件 · 汉堡",
+            lines:[["gf","……算了，我理解。（女友好感大跌）",{big:true}]],
+            choices:[{t:"↩ 继续学期", f:()=>this.semesterStart()}]});
+        }}
+      ]});
+  },
+
+  /* ===================== 炒股 ===================== */
+  stockGame(back){
+    const s=this.s; if(s.semFlags) s.semFlags.stock=true;
+    const a = s.cur==="EUR" ? [5000,10000] : [40000,80000];
+    D({loc:"📈 炒股", art: s.lineType==="shanghai"?"shanghai":null,
+      lines:[["env",`当前可投资金 ${cursym()}${fmt(s.money)}。选一种玩法：`]],
+      extra:`<div class="stockbox">
+        <div style="font-size:13px;color:var(--dim);margin-bottom:8px">📊 定投纳指：稳健，年化 +20%（输入投入金额）</div>
+        <input class="amt-in" id="stkAmt" type="number" min="0" step="1000" value="${Math.min(a[1], s.money)}">
+      </div>`,
+      choices:[
+        {t:"📊 定投纳指（稳健 +20%）", cls:"gold", f:()=>{
+          const amt=Math.min(s.money, Math.max(0, Math.round(+document.getElementById("stkAmt").value||0)));
+          if(amt<=0){ this.toast("请输入有效金额"); return; }
+          this.stockResult(amt, Math.round(amt*0.2), false, back);
+        }},
+        {t:`🎰 ALL IN A股 · 押 ${cursym()}${fmt(a[0])}`, sub:"清零 或 翻倍", cls:"danger", f:()=>this.stockGamble(a[0], back)},
+        {t:`🎰 ALL IN A股 · 押 ${cursym()}${fmt(a[1])}`, sub:"清零 或 翻倍", cls:"danger", f:()=>this.stockGamble(a[1], back)},
+        {t:"↩ 不炒了", f:back}
+      ]});
+  },
+  stockGamble(stake, back){
+    const s=this.s;
+    if(s.money<stake){ this.toast("本金不够"); return; }
+    const win=Math.random()<0.5;
+    this.stockResult(stake, win?stake:-stake, true, back);
+  },
+  stockResult(staked, delta, gamble, back){
+    const s=this.s;
+    s.money=Math.max(0, s.money+delta);
+    if(delta<0) s.stockLoss += (-delta)*RATES[s.cur];
+    this.render();
+    const good=delta>=0;
+    D({loc:"📈 炒股 · 结果",
+      lines:[
+        ["env", gamble ? (good?`🎉 翻倍！押 ${cursym()}${fmt(staked)} → 赚 ${cursym()}${fmt(delta)}！`
+                              :`💥 清零！押 ${cursym()}${fmt(staked)} → 亏 ${cursym()}${fmt(-delta)}。`)
+                       : `📊 定投纳指 ${cursym()}${fmt(staked)}，到手收益 +${cursym()}${fmt(delta)}。`],
+        good?["you","钱生钱，爽！","think"]:["you","愿赌服输……肉疼。","think"],
+      ],
+      extra:`<div class="reel respop">${good?"📈 +":"📉 -"}${cursym()}${fmt(Math.abs(delta))}</div>`,
+      choices:[{t:"↩ 返回", f:back}]});
+  },
+
+  /* ===================== 上海支线 ===================== */
+  enterShanghai(job){
+    const s=this.s;
+    this.setCur("CNY");
+    s.job=job; s.lineType="shanghai"; s.shYears=0;
+    s.costY=200000;
+    s.incomeY = job==="quant" ? 1000000 : 300000;
+    this.render();
+    this.transition({emoji:"🌃", title:"上海 · 闯荡", sub: job==="quant"?"量化机构 · 年薪百万":"车企 · 入职", color:"#bc8cff"}, ()=>{
+      D({loc:"🌃 上海 · 入职", art:"shanghai", tw:true,
         lines:[
-          ["env","🪪 获得【斯图加特大学学生证】！缴纳学费 €1500。"],
-          ["prof2","保时捷与奔驰的故乡，正适合闷头钻研。好好读，前途无量。",{big:true}],
-          ["env","📌 司徒故事线：未完待续。"],
+          ["env","回到上海。基础生活成本 ¥20万/年。"],
+          job==="quant"
+            ? ["hr2","欢迎加入量化机构！年薪百万，但节奏极猛——注意身体。",{big:true}]
+            : ["hr","欢迎进车企！收入稳定，前景嘛……且行且看吧。",{big:true}],
+          ["you","在魔都站稳脚跟，目标——财务自由。","think"],
         ],
-        choices:[
-          {t:"🌃 去上海闯荡", f:()=>this.endingShanghai()},
-          {t:"🚩 回国进红旗", f:()=>this.endingHongqi()}
-        ]});
+        choices:[{t:"▶ 开始上海生活", cls:"gold", f:()=>this.shanghaiHub()}]});
     });
+  },
+
+  isBuffett(){ const s=this.s; return (s.hasGf && s.money>=5000000) || s.money>=10000000; },
+
+  shanghaiHub(){
+    this._scene="shanghaiHub";
+    const s=this.s;
+    if(this.isBuffett()) return this.endingBuffett();
+    if(s.money<=0) return this.endingDelivery("存款见底");
+    const target = s.hasGf ? "女友 + ¥500万" : "¥1000万（已单身）";
+    const choices=[
+      {t:"📈 炒股投资", sub:"高风险高回报", f:()=>this.stockGame(()=>this.shanghaiHub())},
+    ];
+    if(!s.flags.hefeiDone) choices.push({t:"🧧 旭子的婚礼请柬", sub:"合肥支线", f:()=>this.hefeiInvite()});
+    choices.push({t:"⏭️ 推进一年（领薪 · 生活开销）", cls:"gold", f:()=>this.shanghaiAdvanceYear()});
+    D({loc:"🌃 上海", art:"shanghai",
+      lines:[
+        ["env",`上海 · 第 ${s.shYears} 年　职业：${s.job==="quant"?"量化机构":"车企"}　资产 ¥${fmt(s.money)}`],
+        ["you",`巴菲特目标：${target}。继续搞钱。`,"think"],
+      ],
+      choices});
+  },
+
+  shanghaiAdvanceYear(){
+    const s=this.s; s.shYears++; s.age++;
+    const logs=[];
+    s.money += s.incomeY; logs.push(`💼 年薪到账 +¥${fmt(s.incomeY)}`);
+    s.money = Math.max(0, s.money - s.costY); logs.push(`🏠 上海生活开销 -¥${fmt(s.costY)}`);
+    if(s.job==="quant"){ const d=rand(6,14); s.health=clamp(s.health-d,0,100); logs.push(`🩺 高强度工作，健康 -${d}`); }
+    else { const d=rand(1,4); s.health=clamp(s.health-d,0,100); }
+    this.render();
+    if(s.health<=0) return this.endingDeath();
+    if(s.job==="car" && s.shYears>=3 && Math.random() < (s.shYears-2)*0.3) return this.endingShanghaiCar();
+    if(this.isBuffett()) return this.endingBuffett();
+    if(s.money<=0) return this.endingDelivery("存款见底");
+    if(s.age>=35) return this.endingDelivery("35 岁大限已到，仍未实现财务自由");
+    if(s.hasGf && !s.flags.londonOffered && (s.stockLoss>=160000 || s.shYears>=2)){
+      s.flags.londonOffered=true; return this.londonDecision();
+    }
+    D({loc:`🌃 上海 · 第${s.shYears}年小结`,
+      lines:[["env",logs.join("\n")]],
+      choices:[{t:"▶ 继续", cls:"gold", f:()=>this.shanghaiHub()}]});
+  },
+
+  londonDecision(){
+    const s=this.s;
+    D({loc:"人生抉择 · 是否赴英陪读", art:"shanghai", tw:true,
+      lines:[
+        ["gf","我在伦敦读书了……你愿意来陪我吗？我们好久没见了。",{big:true}],
+        ["you", s.stockLoss>=160000 ? "炒股亏得肉疼，又想她……要不去伦敦换个活法？" : "在上海熬了两年，是该见见她了。","think"],
+      ],
+      choices:[
+        {t:"✈️ 去伦敦陪读", sub:"伦敦线 · 学费£10万", cls:"gold", f:()=>this.londonPrep()},
+        {t:"💔 不去，留上海拼投资", sub:"分手 · 冲击巴菲特(¥1000万)", cls:"danger", f:()=>{
+          s.hasGf=false; this.render();
+          D({loc:"💔 分手",
+            lines:[["gf","等不到你……那就这样吧。",{big:true}],["env","💔 你与女友分手，独自留在上海。"],["you","一个人，也要搞到一千万。","think"]],
+            choices:[{t:"▶ 继续投资人生", cls:"gold", f:()=>this.shanghaiHub()}]});
+        }}
+      ]});
+  },
+
+  /* ===================== 合肥支线 ===================== */
+  hefeiInvite(){
+    const s=this.s;
+    D({loc:"🧧 合肥支线 · 婚礼请柬", tw:true,
+      lines:[["xuzi","哥们儿我要结婚啦！合肥办酒，你必须来！",{big:true}],["you","随份子，还是装没看见……","think"]],
+      choices:[
+        {t:"✈️ 去！（-¥2000）", cls:"gold", f:()=>{ s.flags.hefeiDone=true; s.money=Math.max(0,s.money-2000); this.render(); this.hefeiStory(); }},
+        {t:"🙈 婉拒", sub:"兄弟好感↓", cls:"danger", f:()=>{ s.flags.hefeiDone=true; this.change({bro:-12}); this.shanghaiHub(); }}
+      ]});
+  },
+  hefeiStory(){
+    D({loc:"🍲 合肥 · 旭子婚礼", tw:true,
+      lines:[["xuzi","兄弟，赏脸当我伴郎呗？",{big:true}],["you","当不当伴郎呢……","think"]],
+      choices:[
+        {t:"🙋 接受当伴郎", sub:"兄弟好感↑↑", cls:"gold", f:()=>{ this.change({bro:10}); this.hefeiTaxi(); }},
+        {t:"😪 懒得当了", sub:"兄弟好感小涨", f:()=>{ this.change({bro:3}); this.hefeiEnd(); }}
+      ]});
+  },
+  hefeiTaxi(){
+    const s=this.s;
+    D({loc:"🚕 合肥 · 出租车意外", tw:true,
+      lines:[
+        ["env","婚礼当天，新郎招呼所有伴郎去铁锅炖。你打车赶场，半道出租车抛锚了！"],
+        ["you","赶不及了……放兄弟鸽子，还是硬着头皮折腾过去？","think"],
+      ],
+      choices:[
+        {t:"📵 放兄弟鸽子（真来不了）", sub:"兄弟好感↓", cls:"danger", f:()=>{ this.change({bro:-8}); this.hefeiEnd(); }},
+        {t:"🏃 硬着头皮赶过去", sub: s.hasGf?"耽误约会，女友好感↓":"折腾一身", f:()=>{ if(s.hasGf) this.change({gfFavor:-8}); else this.change({health:-3}); this.hefeiEnd(); }}
+      ]});
+  },
+  hefeiEnd(){
+    D({loc:"🍲 合肥 · 铁锅炖",
+      lines:[["xuzi","管它呢，今儿个高兴，铁锅炖管够！",{big:true}],["you","江湖路远，有兄弟就值。","think"]],
+      choices:[{t:"↩ 回上海", cls:"gold", f:()=>this.shanghaiHub()}]});
+  },
+
+  /* ===================== 伦敦支线 ===================== */
+  londonPrep(){
+    const s=this.s;
+    const beat = s.hasBaton ? [{t:"🥢 临行前，拎甩棍找老板算账", sub:"出口恶气", cls:"gold", f:()=>this.beatBoss()}] : [];
+    D({loc:"🇬🇧 赴英前 · 晴天霹雳", art:"shanghai", tw:true,
+      lines:[
+        ["env","十万英镑学费都交了，行李也收拾停当。"],
+        ["boss","喂？哦……那个远程 offer 啊，我们预算砍了，先不招了哈。",{big:true}],
+        ["you","什么?! 临了给我放鸽子？到了伦敦可就没收入了……","think"],
+      ],
+      choices:[ ...beat, {t:"😤 忍下这口气，做决定", f:()=>this.londonDecide()} ]});
+  },
+  beatBoss(){
+    this.change({wuli:2});
+    D({loc:"🥢 算账", tw:true,
+      lines:[["env","你抄起甩棍堵到老板楼下，一顿输出，对方抱头鼠窜、连声赔礼。"],
+             ["you","痛快！这口恶气总算出了。",{big:true}]],
+      choices:[{t:"▶ 继续", cls:"gold", f:()=>this.londonDecide()}]});
+  },
+  londonDecide(){
+    const s=this.s;
+    D({loc:"🇬🇧 去，还是不去？", tw:true,
+      lines:[
+        ["env","到了伦敦将没有收入来源，生活费每月 £2000，全靠存款硬撑。"],
+        ["you","放弃留学留上海（会失去她），还是咬牙去伦敦？","think"],
+      ],
+      choices:[
+        {t:"✈️ 咬牙去伦敦", sub:"继续读书 · £2000/月", cls:"gold", f:()=>this.enterLondonStudy()},
+        {t:"🏯 放弃，留在上海", sub:"失去女友", cls:"danger", f:()=>{
+          s.hasGf=false; this.render();
+          D({loc:"💔 分手",
+            lines:[["env","你退了机票，留在上海。她在电话那头沉默了很久。"],["gf","……我懂了。再见。",{big:true}]],
+            choices:[{t:"▶ 继续上海打拼", cls:"gold", f:()=>this.shanghaiHub()}]});
+        }}
+      ]});
+  },
+  enterLondonStudy(){
+    const s=this.s;
+    this.setCur("GBP");
+    s.money=Math.max(0, s.money-100000);
+    s.school="伦敦大学"; s.gpaSys="de5"; s.lineType="london";
+    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0; s.creditGoal=60;
+    s.costY=24000; s.incomeY=0;
+    if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
+    this.render();
+    this.transition({emoji:"🇬🇧", title:"伦敦留学", sub:"两学期制 · 学费£10万", color:"#58a6ff"}, ()=>{
+      D({loc:"🇬🇧 伦敦 · 入学", art:"london", tw:true,
+        lines:[["env","🪪 获得【伦敦大学学生证】！学费 £100,000 已交，两学期制。"],
+               ["gf","你真的来了……谢谢你，我们一起加油！",{big:true}],
+               ["you","没收入，存款在烧。得撑住。","think"]],
+        choices:[{t:"📚 开始伦敦学业", cls:"gold", f:()=>this.studyYear()}]});
+    });
+  },
+  londonGraduate(){
+    const s=this.s;
+    D({loc:"🇬🇧 伦敦 · 毕业", art:"london", tw:true,
+      lines:[["env",`🎓 获得【伦敦大学毕业证】！毕业绩点 ${avgGpa(s)}/5.0。`],
+             ["you","毕业了。回上海，还是留伦敦闯虚拟币圈？","think"]],
+      choices:[
+        {t:"🪙 进伦敦虚拟币公司实习", sub:"£5000/月 · 需平衡工作与感情", cls:"gold", f:()=>this.startIntern()},
+        {t:"🌃 重回上海发展", sub:"上海支线", f:()=>this.enterShanghai(s.major==="ad"?"quant":"car")}
+      ]});
+  },
+  startIntern(){
+    const s=this.s; s.internProg=0; s.internSalary=5000; s.internRegular=false;
+    s.costY=24000; s.incomeY=5000*12;
+    D({loc:"🪙 伦敦虚拟币公司 · 实习", tw:true,
+      lines:[["boss","欢迎来实习！转正了工资翻倍，好好表现。",{big:true}],
+             ["you","work-life balance……工作多了能转正，可她会不高兴。","think"]],
+      choices:[{t:"▶ 开始实习", cls:"gold", f:()=>this.internRound()}]});
+  },
+  internRound(){
+    this._scene="internRound";
+    const s=this.s;
+    D({loc:"🪙 实习 · 分配精力",
+      lines:[["env",`转正进度 ${Math.round(s.internProg)}%　女友好感 ${s.gfFavor}　月薪 £${fmt(s.internSalary)}`],
+             ["you","这一阶段，多搬砖还是多陪她？","think"]],
+      extra:`<div class="credit-pick">
+        <div class="big"><span id="wv">50</span><small style="font-size:16px;color:var(--dim)">% 投入工作</small></div>
+        <input type="range" id="workpct" min="0" max="100" step="10" value="50" oninput="document.getElementById('wv').textContent=this.value">
+        <div class="hint">越高越易转正，但越伤感情</div>
+      </div>`,
+      choices:[{t:"✅ 确定，过一个阶段", cls:"gold", f:()=>this.internResolve(+document.getElementById("workpct").value)}]});
+  },
+  internResolve(work){
+    const s=this.s; s.age++;
+    const life=100-work;
+    const inc=s.internSalary*12; s.money=Math.max(0, s.money+inc-s.costY);
+    s.internProg=Math.min(120, s.internProg + work*0.6);
+    if(!s.internRegular && s.internProg>=100){ s.internRegular=true; s.internSalary*=2; s.incomeY=s.internSalary*12; this.toast("🎉 转正！工资翻倍"); }
+    const gd=Math.round((life-50)*0.3);
+    s.gfFavor=clamp(s.gfFavor+gd,0,100);
+    this.render();
+    if(s.gfFavor<50){
+      s.hasGf=false; s.costY=0; this.render();
+      return D({loc:"💔 分手", tw:true,
+        lines:[["gf","你眼里只有工作……我们结束吧。",{big:true}],
+               ["env","💔 感情破裂。你心灰意冷，离开伦敦回国工作。"],
+               ["you","拼了命搞钱，却把她弄丢了。","think"]],
+        choices:[{t:"🏯 回国工作", cls:"danger", f:()=>{ this.setCur("CNY"); s.job="car"; s.lineType="shanghai"; s.incomeY=300000; s.costY=200000; this.shanghaiHub(); }}]});
+    }
+    if(s.gfFavor<60) this.toast("⚠️ 女友好感跌破 60，吵架预警！");
+    if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
+    const choices=[];
+    if(s.internRegular) choices.push({t:"🌃 见好就收，带她回上海", sub:"圆满收尾", cls:"gold", f:()=>this.endingLondonHappy()});
+    choices.push({t:"▶ 继续下一阶段", f:()=>this.internRound()});
+    D({loc:"🪙 实习 · 小结",
+      lines:[["env",`这阶段到手 £${fmt(inc)}，生活 -£${fmt(s.costY)}。转正进度 ${Math.round(s.internProg)}%，女友好感 ${s.gfFavor}。`]],
+      choices});
   },
 
   /* ========================================================= */
@@ -912,21 +1451,51 @@ const Game = {
       }}]});
   },
 
-  endingShanghai(){
-    this._scene="endingShanghai";
-    this.toCNY(); this.render();
-    const s=this.s;
-    const win = s.career>=40 || s.money>=200000 || s.eq>=60;
-    D({loc:"🌃 上海支线", art:"shanghai", tw:true,
+  endingBuffett(){
+    this._scene="endingBuffett"; const s=this.s; s.costY=0; this.toCNY(); this.render();
+    D({loc:"🏆 结局 · 沧州巴菲特", art:"shanghai", tw:true,
       lines:[
-        ["env","魔都的霓虹彻夜不熄。你带着一身本事和满脑子野心，扎进了陆家嘴的人潮。"],
-        win
-          ? ["you","站稳了！租下了能看见东方明珠的房子——大城市没辜负我。"]
-          : ["you","事业、人脉、积蓄都还差火候……房租又涨了，先活下来再说。","think"],
-        ["end", win
-          ? "【结局：上海立足】🌃✨\n大城市没有辜负努力的人——至少这一次没有。"
-          : "【结局：沪漂未竟】🌃\n故事尚未写完，而你已学会先活下来。"],
-        ["env","📌 上海故事线：未完待续。"],
+        ["env",`资产突破 ¥${fmt(s.money)}${s.hasGf?"，身边还有她。":"。"} 财务自由达成。`],
+        s.hasGf?["gf","我们做到了！以后想去哪就去哪～",{big:true}]
+               :["you","一个人，也终于把这一千万搞定了。",{big:true}],
+        ["end","【结局：沧州巴菲特】🏆\n从厂区少年到财务自由，沧州出了个巴菲特。"],
+      ],
+      extra:endingStats(s),
+      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+  },
+
+  endingShanghaiCar(){
+    this._scene="endingShanghaiCar"; const s=this.s; s.costY=0; this.toCNY(); this.render();
+    D({loc:"🚗 结局 · 上海车企版", art:"factory", tw:true,
+      lines:[
+        ["env","燃油车的黄昏来临，车企一轮轮裁员。"],
+        ["hr","公司要降本增效……这是优化通知单。对不住。",{big:true}],
+        ["you","在上海拼了这些年，到头来还是被时代抛下。","think"],
+        ["end","【结局：上海车企版·下岗回乡】🚗→🏯\n你拎着纸箱回到沧州，又走进了那家工厂。"],
+      ],
+      extra:endingStats(s),
+      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+  },
+
+  endingDelivery(reason){
+    this._scene="endingDelivery"; const s=this.s; s.costY=0; this.toCNY(); this.render();
+    D({loc:"🛵 结局 · 沧州外卖员", art:"factory", tw:true,
+      lines:[
+        ["env",`${reason||"账户见底"}。在上海再也撑不下去，你回了沧州。`],
+        ["you","送一单挣几块钱，至少……还能跑得动。","think"],
+        ["end","【结局：沧州外卖员】🛵\n超时要扣钱，红灯也得闯——生活的赛道，没有终点。"],
+      ],
+      extra:endingStats(s),
+      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+  },
+
+  endingLondonHappy(){
+    this._scene="endingLondonHappy"; const s=this.s; s.costY=0; this.toCNY(); this.render();
+    D({loc:"🌆 结局 · 携手归来", art:"shanghai", tw:true,
+      lines:[
+        ["env","虚拟币公司转正、攒下第一桶金，你带着她回到上海。"],
+        ["gf","绕了大半个地球，还是和你在一起最好。",{big:true}],
+        ["end","【结局：携手归来】🌆💞\n感情与事业都没落下——这一局，赢得漂亮。"],
       ],
       extra:endingStats(s),
       choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
@@ -1022,7 +1591,7 @@ const Game = {
 function rand(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function fmt(n){return Math.round(n).toLocaleString("en-US");}
-function cursym(){return Game.s&&Game.s.cur==="EUR"?"€":"¥";}
+function cursym(){return ({CNY:"¥",EUR:"€",GBP:"£"})[Game.s&&Game.s.cur]||"¥";}
 function mny(n){return cursym()+fmt(n);}
 function avgGpa(s){ if(!s.gpaCount) return s.gpaSys==="de5"?"0.0":"0";
   const a=s.gpaTotal/s.gpaCount; return s.gpaSys==="de5"?a.toFixed(1):Math.round(a); }
@@ -1071,7 +1640,27 @@ const CHARS={
   hr:   {name:"红旗 HR",  face:"🧑‍💼", side:"left",  color:"#ff5b5b"},
   fore: {name:"工头",    face:"🦺", side:"left",  color:"#8b98a8"},
   prof2:{name:"德国教授", face:"🧑‍🏫", side:"left",  color:"#4dd0e1"},
+  gf:   {name:"女友",    face:"👧", side:"left",  color:"#ff8ecb"},
+  xuzi: {name:"旭子",    face:"😎", side:"left",  color:"#ffcc4d"},
+  feizi:{name:"非子",    face:"🥷", side:"left",  color:"#ff5b5b"},
+  yong: {name:"勇哥",    face:"💪", side:"left",  color:"#ff7a3c"},
+  kong: {name:"孔老师",  face:"🧑‍🏫", side:"left",  color:"#4dd0e1"},
+  garf: {name:"加菲猫",  face:"🐱", side:"left",  color:"#ffcc4d"},
+  jenny:{name:"杰尼龟",  face:"🐢", side:"left",  color:"#3fb950"},
+  boss: {name:"老板",    face:"🤵", side:"left",  color:"#bc8cff"},
+  hr2:  {name:"量化 HR",  face:"🧑‍💼", side:"left",  color:"#bc8cff"},
 };
+// 可结识的新人物：认识后给予的属性加成
+const PEOPLE={
+  xuzi: {nm:"旭子", get:{bro:6},            intro:"哥们儿沧州的吧？看你顺眼，交个朋友！"},
+  feizi:{nm:"非子", get:{bro:5, wuli:12},   intro:"少林俗家弟子，练过。以后谁惹你，报我名号。"},
+  yong: {nm:"勇哥", get:{bro:8},            intro:"叫我勇哥，道上有点小关系，缺事儿吱声。"},
+  kong: {nm:"孔老师",get:{renmai:14},       intro:"我孔某人朋友遍天下，往后给你多引荐人脉。"},
+  garf: {nm:"加菲猫",get:{bro:4, eq:6},     intro:"吃了吗您？来来来，整两串，开心最重要！"},
+  jenny:{nm:"杰尼龟",get:{xuexi:14},        intro:"考试范围我都划好了，跟着我稳过。"},
+};
+function gainText(get){ const L={bro:"兄弟好感",eq:"情商",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
+  return Object.keys(get).map(k=>`${L[k]||k}+${get[k]}`).join("，"); }
 function renderLine(l){
   const who=Array.isArray(l)?l[0]:l.who;
   let text=Array.isArray(l)?l[1]:l.text;
@@ -1154,6 +1743,7 @@ function art(key){
     factory:  {g:["#2c2c2c","#121212"], hero:["🏭","🐕"], p:"☁️", pn:6},
     hongqi:   {g:["#5a1a1a","#1a0d0d"], hero:["🚩","🚗"], p:"", pn:0},
     shanghai: {g:["#1a1440","#0d0a20"], hero:["🌃","🏙️"], p:"✨", pn:10, neon:1},
+    london:   {g:["#23304a","#0d1117"], hero:["🇬🇧","☂️"], p:"💧", pn:6},
     death:    {g:["#1a1a22","#070709"], hero:["💀"], p:"", pn:0},
   }[key];
   if(!T) return "";
