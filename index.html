@@ -202,6 +202,17 @@
     animation:tTitle .8s ease .5s both;}
   @keyframes tTitle{from{opacity:0; transform:translateY(16px);}to{opacity:1; transform:translateY(0);}}
   #trans .tskip{position:absolute; bottom:28px; font-size:11px; color:var(--dim); animation:tTitle .6s ease 1s both;}
+  /* 结局专用全屏动画（电影感：黑边 + “结局”标） */
+  #trans.ending{background:#04060a;}
+  #trans .lb{position:absolute; left:0; right:0; height:15%; background:#000; z-index:6;}
+  #trans .lb.top{top:0; animation:lbTop .7s cubic-bezier(.2,.8,.2,1) both;}
+  #trans .lb.bot{bottom:0; animation:lbBot .7s cubic-bezier(.2,.8,.2,1) both;}
+  @keyframes lbTop{from{transform:translateY(-100%);}to{transform:translateY(0);}}
+  @keyframes lbBot{from{transform:translateY(100%);}to{transform:translateY(0);}}
+  #trans .tlabel{position:absolute; top:calc(50% - 118px); font-size:13px; letter-spacing:10px;
+    color:var(--tc,#ffcc4d); opacity:.85; z-index:7; animation:tTitle 1s ease .4s both;}
+  #trans.ending .ttitle{animation:tTitle 1s ease .6s both;}
+  #trans.ending .temoji{animation:tEmoji 1.3s cubic-bezier(.2,.8,.2,1) .2s both;}
 
   /* 收支预警 */
   .balwarn{margin-top:7px; font-size:11px; line-height:1.5; color:var(--gold);
@@ -283,24 +294,29 @@ const Game = {
   toEUR(){ this.setCur("EUR"); },
   toCNY(){ this.setCur("CNY"); },
 
-  /* ---------- 全屏关卡过渡动画 ---------- */
+  /* ---------- 全屏过渡动画（关卡 / 结局） ---------- */
   transition(o, done){
     let t=document.getElementById("trans");
     if(!t){ t=document.createElement("div"); t.id="trans"; document.getElementById("app").appendChild(t); }
+    t.className = o.ending ? "ending" : "";
     t.style.setProperty("--tc", o.color||"#ffcc4d");
-    t.innerHTML=`<div class="tband"></div>
+    t.innerHTML=
+      (o.ending?`<div class="lb top"></div><div class="lb bot"></div><div class="tlabel">结　局</div>`:"")+
+      `<div class="tband"></div>
       <div class="temoji">${o.emoji||"🏁"}</div>
       <div class="ttitle">${o.title}</div>
       ${o.sub?`<div class="tsub">${o.sub}</div>`:""}
-      <div class="tskip">轻触跳过</div>`;
+      <div class="tskip">${o.ending?"轻触查看结算":"轻触跳过"}</div>`;
     void t.offsetWidth; t.classList.add("show");
     let finished=false;
     const end=()=>{ if(finished)return; finished=true; clearTimeout(this._transTimer);
       t.classList.remove("show"); t.removeEventListener("click", end);
       setTimeout(()=>{ if(done)done(); }, 420); };
     t.addEventListener("click", end);
-    this._transTimer=setTimeout(end, o.hold||1800);
+    this._transTimer=setTimeout(end, o.hold||(o.ending?2600:1800));
   },
+  // 结局：先放全屏结局动画，再展示结算
+  endingSplash(o, contentFn){ this.transition(Object.assign({ending:true}, o), contentFn); },
 
   start(){
     this.s = this.fresh();
@@ -1420,15 +1436,17 @@ const Game = {
   endingFactoryDog(text){
     this._scene="sceneCangzhou";
     this.toCNY(); this.render();
-    D({loc:"结局 · 厂狗", art:"factory", tw:true,
-      lines:[
-        ["env",text],
-        ["fore","新来的？别愣着，流水线那头缺人，跟我走吧。",{big:true}],
-        ["you","路灯下那笼小笼包的味道……好像还在。","think"],
-        ["end","【结局：沧州厂狗】🐕\n日复一日，三班倒。工资够吃饭，够交房租。"],
-      ],
-      extra:endingStats(this.s),
-      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    this.endingSplash({emoji:"🏭", title:"沧州厂狗", sub:"BAD END", color:"#8b98a8"}, ()=>{
+      D({loc:"结局 · 厂狗", art:"factory", tw:true,
+        lines:[
+          ["env",text],
+          ["fore","新来的？别愣着，流水线那头缺人，跟我走吧。",{big:true}],
+          ["you","路灯下那笼小笼包的味道……好像还在。","think"],
+          ["end","【结局：沧州厂狗】🐕\n日复一日，三班倒。工资够吃饭，够交房租。"],
+        ],
+        extra:endingStats(this.s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   endingHongqi(){
@@ -1440,76 +1458,88 @@ const Game = {
         ["env","头几年，西装革履，出入有车，逢年过节红包厚实，亲戚都夸你有出息。"],
       ],
       choices:[{t:"▶ 几年后……", f:()=>{
-        D({loc:"🚩 红旗支线 · 尾声", art:"hongqi", tw:true,
-          lines:[
-            ["hr","……这是优化通知单。燃油车不行了，订单缩水，部门合并。对不住。",{big:true}],
-            ["you","体面，原来是有期限的。","think"],
-            ["end","【结局：红旗下岗·重返沧州】🚩→🏯\n你拎着纸箱回到沧州，最终又走进了那家工厂。"],
-          ],
-          extra:endingStats(this.s),
-          choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+        this.endingSplash({emoji:"🚩", title:"红旗下岗", sub:"BAD END", color:"#ff5b5b"}, ()=>{
+          D({loc:"🚩 红旗支线 · 尾声", art:"hongqi", tw:true,
+            lines:[
+              ["hr","……这是优化通知单。燃油车不行了，订单缩水，部门合并。对不住。",{big:true}],
+              ["you","体面，原来是有期限的。","think"],
+              ["end","【结局：红旗下岗·重返沧州】🚩→🏯\n你拎着纸箱回到沧州，最终又走进了那家工厂。"],
+            ],
+            extra:endingStats(this.s),
+            choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+        });
       }}]});
   },
 
   endingBuffett(){
     this._scene="endingBuffett"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    D({loc:"🏆 结局 · 沧州巴菲特", art:"shanghai", tw:true,
-      lines:[
-        ["env",`资产突破 ¥${fmt(s.money)}${s.hasGf?"，身边还有她。":"。"} 财务自由达成。`],
-        s.hasGf?["gf","我们做到了！以后想去哪就去哪～",{big:true}]
-               :["you","一个人，也终于把这一千万搞定了。",{big:true}],
-        ["end","【结局：沧州巴菲特】🏆\n从厂区少年到财务自由，沧州出了个巴菲特。"],
-      ],
-      extra:endingStats(s),
-      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    this.endingSplash({emoji:"🏆", title:"沧州巴菲特", sub:"TRUE END · 财务自由", color:"#ffcc4d"}, ()=>{
+      D({loc:"🏆 结局 · 沧州巴菲特", art:"shanghai", tw:true,
+        lines:[
+          ["env",`资产突破 ¥${fmt(s.money)}${s.hasGf?"，身边还有她。":"。"} 财务自由达成。`],
+          s.hasGf?["gf","我们做到了！以后想去哪就去哪～",{big:true}]
+                 :["you","一个人，也终于把这一千万搞定了。",{big:true}],
+          ["end","【结局：沧州巴菲特】🏆\n从厂区少年到财务自由，沧州出了个巴菲特。"],
+        ],
+        extra:endingStats(s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   endingShanghaiCar(){
     this._scene="endingShanghaiCar"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    D({loc:"🚗 结局 · 上海车企版", art:"factory", tw:true,
-      lines:[
-        ["env","燃油车的黄昏来临，车企一轮轮裁员。"],
-        ["hr","公司要降本增效……这是优化通知单。对不住。",{big:true}],
-        ["you","在上海拼了这些年，到头来还是被时代抛下。","think"],
-        ["end","【结局：上海车企版·下岗回乡】🚗→🏯\n你拎着纸箱回到沧州，又走进了那家工厂。"],
-      ],
-      extra:endingStats(s),
-      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    this.endingSplash({emoji:"🚗", title:"上海车企·下岗", sub:"BAD END", color:"#8b98a8"}, ()=>{
+      D({loc:"🚗 结局 · 上海车企版", art:"factory", tw:true,
+        lines:[
+          ["env","燃油车的黄昏来临，车企一轮轮裁员。"],
+          ["hr","公司要降本增效……这是优化通知单。对不住。",{big:true}],
+          ["you","在上海拼了这些年，到头来还是被时代抛下。","think"],
+          ["end","【结局：上海车企版·下岗回乡】🚗→🏯\n你拎着纸箱回到沧州，又走进了那家工厂。"],
+        ],
+        extra:endingStats(s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   endingDelivery(reason){
     this._scene="endingDelivery"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    D({loc:"🛵 结局 · 沧州外卖员", art:"factory", tw:true,
-      lines:[
-        ["env",`${reason||"账户见底"}。在上海再也撑不下去，你回了沧州。`],
-        ["you","送一单挣几块钱，至少……还能跑得动。","think"],
-        ["end","【结局：沧州外卖员】🛵\n超时要扣钱，红灯也得闯——生活的赛道，没有终点。"],
-      ],
-      extra:endingStats(s),
-      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    this.endingSplash({emoji:"🛵", title:"沧州外卖员", sub:"BAD END", color:"#ff7a3c"}, ()=>{
+      D({loc:"🛵 结局 · 沧州外卖员", art:"factory", tw:true,
+        lines:[
+          ["env",`${reason||"账户见底"}。在上海再也撑不下去，你回了沧州。`],
+          ["you","送一单挣几块钱，至少……还能跑得动。","think"],
+          ["end","【结局：沧州外卖员】🛵\n超时要扣钱，红灯也得闯——生活的赛道，没有终点。"],
+        ],
+        extra:endingStats(s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   endingLondonHappy(){
     this._scene="endingLondonHappy"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    D({loc:"🌆 结局 · 携手归来", art:"shanghai", tw:true,
-      lines:[
-        ["env","虚拟币公司转正、攒下第一桶金，你带着她回到上海。"],
-        ["gf","绕了大半个地球，还是和你在一起最好。",{big:true}],
-        ["end","【结局：携手归来】🌆💞\n感情与事业都没落下——这一局，赢得漂亮。"],
-      ],
-      extra:endingStats(s),
-      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    this.endingSplash({emoji:"🌆", title:"携手归来", sub:"GOOD END", color:"#ff8ecb"}, ()=>{
+      D({loc:"🌆 结局 · 携手归来", art:"shanghai", tw:true,
+        lines:[
+          ["env","虚拟币公司转正、攒下第一桶金，你带着她回到上海。"],
+          ["gf","绕了大半个地球，还是和你在一起最好。",{big:true}],
+          ["end","【结局：携手归来】🌆💞\n感情与事业都没落下——这一局，赢得漂亮。"],
+        ],
+        extra:endingStats(s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   endingDeath(){
     this._scene="endingDeath";
-    D({loc:"结局 · 暴毙", art:"death", tw:true,
-      lines:[
-        ["env","长期熬夜，身体早已被掏空。某个再普通不过的夜里，你倒在了书桌前，再没醒来。"],
-        ["end","【结局：英年早逝】💀\n身体是革命的本钱——这道理，你懂得太晚了。"],
-      ],
-      extra:endingStats(this.s),
-      choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    this.endingSplash({emoji:"💀", title:"英年早逝", sub:"BAD END", color:"#888888"}, ()=>{
+      D({loc:"结局 · 暴毙", art:"death", tw:true,
+        lines:[
+          ["env","长期熬夜，身体早已被掏空。某个再普通不过的夜里，你倒在了书桌前，再没醒来。"],
+          ["end","【结局：英年早逝】💀\n身体是革命的本钱——这道理，你懂得太晚了。"],
+        ],
+        extra:endingStats(this.s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   /* ========================================================= */
