@@ -383,6 +383,7 @@ const Game = {
       friends:{}, major:null, canStock:false, stockLoss:0, keptBaton:true, pendingStock:null,
       job:null, incomeY:0, costY:0, semFlags:{}, loan:0, shark:0,
       loan:0, internRaiseMult:1, hospWarned:false,
+      hasCardCounter:false, sharkAge:0,
     };
   },
 
@@ -391,16 +392,16 @@ const Game = {
   econ(){
     // internBase：每点实习的"基础月薪"（当地货币），随事业度涨薪倍率放大
     if(this.s.cur==="GBP")
-      return {sym:"£", live:2000, workRate:110, workRand:[0,1400], internBase:40,
+      return {sym:"£", live:2000, workRate:110, workRand:[0,1400], internBase:24,
               tooth:[50,300], schHi:1200, schMid:500, socUnit:120, socMax:6000, socStep:200};
     if(this.s.cur==="EUR"){
       // 基础生活成本按城市浮动：不伦瑞克 1000 / 斯图加特 1200 / 慕尼黑 1500
       const liveByCity={braunschweig:1000, stuttgart:1200, munich:1500};
       const live=liveByCity[this.s.lineType] ?? 1200;
-      return {sym:"€", live, workRate:120, workRand:[0,1500], internBase:45,
+      return {sym:"€", live, workRate:120, workRand:[0,1500], internBase:26,
               tooth:[60,400], schHi:1500, schMid:600, socUnit:130, socMax:8000, socStep:200};
     }
-    return {sym:"¥", live:2500, workRate:120, workRand:[0,800], internBase:130,
+    return {sym:"¥", live:2500, workRate:120, workRand:[0,800], internBase:78,
          tooth:[500,2500], schHi:8000, schMid:3000, socUnit:1000, socMax:60000, socStep:1000};
   },
   // 通用换币：经人民币中转
@@ -675,10 +676,15 @@ const Game = {
         ["you","高考地点……这第一步，可得想清楚了。","think"],
       ],
       choices:[
-        {t:`🏯 就在${home()}考`, sub:"竞争激烈·凭真本事", f:()=>this.sceneLocalGaokao()},
-        {t:"🏜 远赴新疆高考", sub:"需打点 ¥20,000", cls:"gold", f:()=>this.sceneXinjiang()}
+        {t:`🏯 就在${home()}考`, sub:"竞争激烈·凭真本事·备考一年", f:()=>{ this.gaokaoPrepCost(); this.sceneLocalGaokao(); }},
+        {t:"🏜 远赴新疆高考", sub:"需打点 ¥20,000·备考一年", cls:"gold", f:()=>{ this.gaokaoPrepCost(); this.sceneXinjiang(); }}
       ]
     });
+  },
+  // 备考一年：从报名到放榜，时间已过去一年——扣一年生活费、长一岁
+  gaokaoPrepCost(){
+    const s=this.s; const cost=2500*12;
+    s.age+=1; s.money=Math.max(0,s.money-cost); this.render();
   },
 
   /* ---------- 本地（沧州）高考：逐门出分 → 总分择校 ---------- */
@@ -745,7 +751,10 @@ const Game = {
           ["mom","哈工大威海分校录取你啦！985，知足吧儿子！",{big:true}],
           ["you","同济无缘，哈工大也很香。","think"],
         ],
-        choices:[{t:"🛠 去哈工大（威海）报到", cls:"gold", f:()=>this.enterHarbin()}]});
+        choices:[
+          {t:"🛠 去哈工大（威海）报到", cls:"gold", f:()=>this.enterHarbin()},
+          {t:"📚 本地复读·冲击同济", sub:"+1岁·花一年生活费·下次分数概率提升", f:()=>this.repeatLocal()}
+        ]});
     }
     // 落榜
     D({loc:`${home()} · 落榜`, art:"cangzhou", tw:true,
@@ -823,7 +832,7 @@ const Game = {
     const s=this.s;
     s.school="同济大学"; s.gpaSys="cn100";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=120; s.lineType="tongji"; s.age=19;
+    s.creditGoal=120; s.lineType="tongji";
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
     this.transition({emoji:"🏛", title:"同济大学", sub:"关卡通过 · 名校录取", color:"#ffcc4d"}, ()=>{
@@ -861,7 +870,6 @@ const Game = {
     this.s.creditsEarned=0; this.s.creditsFailed=0; this.s.yearInSchool=0;
     this.s.gpaTotal=0; this.s.gpaCount=0;
     this.s.creditGoal=120; this.s.lineType="harbin";
-    this.s.age=19;
     if(!this.s.studentIds.includes(this.s.school)){ this.s.studentIds.push(this.s.school); }
     this.render();
     this.transition({emoji:"🛠", title:"哈工大 · 威海", sub:"关卡通过 · 金榜题名", color:"#58a6ff"}, ()=>{
@@ -1044,8 +1052,16 @@ const Game = {
     this._chosenCredits=null;
     this.allocateYear(null, this.yrLabelFor(s.yearInSchool), false);
   },
-  // 读取合并界面上的「本学期学分」滑块（补课等固定场景回退到入参）
-  _readCredits(fallback){ const el=document.getElementById("credits"); return el ? +el.value : (fallback||0); },
+  // 读取合并界面上的「本学期学分」（数字输入优先，可超出滑块范围；补课等固定场景回退到入参）
+  _readCredits(fallback){
+    const n=document.getElementById("creditsNum");
+    if(n && n.value!=="") return clamp(Math.round(+n.value||0), 1, 300);
+    const el=document.getElementById("credits"); return el ? +el.value : (fallback||0);
+  },
+  // 学分滑块 ↔ 数字输入双向同步
+  _creditRangeSync(){ const r=document.getElementById("credits"), n=document.getElementById("creditsNum"); if(r&&n) n.value=r.value; },
+  _creditNumSync(){ const r=document.getElementById("credits"), n=document.getElementById("creditsNum");
+    if(r&&n){ const v=Math.round(+n.value||0); r.value=clamp(v, +r.min, +r.max); } },
 
   /* 实习每点月薪（按当地经济基准 × 涨薪倍率） */
   internMonthlyPerPoint(){ return Math.round(this.econ().internBase * (this.s.internRaiseMult||1)); },
@@ -1062,12 +1078,15 @@ const Game = {
     const cmax = fewLeft ? Math.max(5, Math.ceil(remain/5)*5) : 80;
     let cbase = this._chosenCredits!=null ? this._chosenCredits : (credits!=null ? credits : (fewLeft?cmax:60));
     const cdef = clamp(Math.round(cbase/5)*5, cmin, cmax);
+    const cnumMax=Math.max(cmax, goal);
     const creditBlock = pick ? `<div class="credit-pick" style="margin-bottom:2px">
         <div style="font-size:13px;color:var(--dim);margin-bottom:3px">📘 本学期选课　已修 ${s.creditsEarned}/${goal}${s.creditsFailed?`　·　挂科 ${s.creditsFailed}/30`:""}</div>
-        <div class="big"><span id="cv">${cdef}</span><small style="font-size:16px;color:var(--dim)"> 学分</small></div>
+        <div class="big"><input type="number" id="creditsNum" value="${cdef}" min="${cmin}" max="${cnumMax}" inputmode="numeric"
+            style="width:96px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:38px;text-align:center;padding:2px 4px"
+            oninput="Game._creditNumSync()"><small style="font-size:16px;color:var(--dim)"> 学分</small></div>
         <input type="range" id="credits" min="${cmin}" max="${cmax}" step="5" value="${cdef}"
-          oninput="document.getElementById('cv').textContent=this.value">
-        <div class="hint">${fewLeft?`🎓 只差 ${remain} 学分即可毕业 · 可只选所需学分`:`范围 ${cmin}–${cmax}`}　·　修够 ${goal} 立刻毕业${s.gpaSys==="de5"?"　·　每门课 4–6 学分":""}</div>
+          oninput="Game._creditRangeSync()">
+        <div class="hint">${fewLeft?`🎓 只差 ${remain} 学分即可毕业 · 可只选所需学分`:`滑块 ${cmin}–${cmax}，也可直接输入数字`}　·　修够 ${goal} 立刻毕业${s.gpaSys==="de5"?"　·　每门课 4–6 学分":""}</div>
       </div>` : "";
     const careerOK = s.career>=20;
     const cats=[
@@ -1201,7 +1220,7 @@ const Game = {
     // 还债：先还高利贷(30%)再还助学贷款(10%)
     if(money.repay>0){
       let pay=Math.min(money.repay, s.money);
-      if(s.shark>0){ const p=Math.min(pay, s.shark); s.shark-=p; pay-=p; s.money-=p; }
+      if(s.shark>0){ const p=Math.min(pay, s.shark); s.shark-=p; pay-=p; s.money-=p; if(s.shark<=0) s.sharkAge=0; }
       if(pay>0 && s.loan>0){ const p=Math.min(pay, s.loan); s.loan-=p; pay-=p; s.money-=p; }
       if(pay>0 && s.gfLoan>0){ const p=Math.min(pay, s.gfLoan); s.gfLoan-=p; pay-=p; s.money-=p; }
     }
@@ -1212,6 +1231,7 @@ const Game = {
 
     const logs=[];
     const isCn = s.gpaSys==="cn100";
+    const careerBefore0=s.career; // 用于检测「事业度突破20→解锁有偿实习」
 
     // ---- 通过率（含学校难度修正 + 学习力 + 随机扰动） ----
     const studyW=alloc.study/100;
@@ -1375,7 +1395,24 @@ const Game = {
     logs.push(`🏠 学期生活开销 -${E.sym}${fmt(livingYr)}`);
     // ---- 债务利息：助学贷款10%/年，高利贷30%/年 ----
     if(s.loan>0){ s.loan=Math.round(s.loan*1.10); logs.push(`🏦 助学贷款滚息至 ${E.sym}${fmt(s.loan)}（10%/年）`); }
-    if(s.shark>0){ s.shark=Math.round(s.shark*1.30); logs.push(`💸 高利贷滚息至 ${E.sym}${fmt(s.shark)}（30%/年）`); }
+    if(s.shark>0){
+      s.shark=Math.round(s.shark*1.30); logs.push(`💸 高利贷滚息至 ${E.sym}${fmt(s.shark)}（30%/年）`);
+      // ---- 追债暴打：欠得越多、拖得越久越容易被堵；甩棍可增强防身 ----
+      s.sharkAge=(s.sharkAge||0)+1;
+      const ratio=s.shark/Math.max(1,E.live*12);
+      let prob=clamp(0.08 + ratio*0.14 + s.sharkAge*0.07, 0, 0.85);
+      if(Math.random()<prob){
+        const fended = s.hasBaton && Math.random()<0.5;   // 甩棍：约五成概率打跑讨债的
+        if(fended){
+          logs.push(`🥢 讨债的堵到门口，你抄起甩棍拼命，他们见你不好惹，悻悻退去——这次躲过了。`);
+        } else {
+          const hp=rand(18,34); s.health=clamp(s.health-hp,0,100);
+          const med=Math.round(E.live*2 + rand(0,E.tooth[1])); s.money=Math.max(0,s.money-med);
+          this._pendingDebtBeat={hp, med, baton:!!s.hasBaton};
+          logs.push(`🩸 高利贷追债·被打住院！健康 -${hp}，医药费 ${E.sym}${fmt(med)}`);
+        }
+      }
+    }
 
     // ---- 睡眠平衡：精力总量决定健康（兄弟局额外耗精力） ----
     s.age++;
@@ -1420,6 +1457,12 @@ const Game = {
     // 健康恢复良好则解除"住院警告"
     if(s.health>=70) s.hospWarned=false;
 
+    // ---- 技能解锁：事业度首次突破 20 → 有偿实习 ----
+    if(careerBefore0<20 && s.career>=20){
+      this._pendingSkillUnlock={emoji:"💼", title:"有偿实习", color:"#3fb950",
+        desc:"事业度突破 20！实习不再无偿——从此实习有工资，事业度越高、涨薪空间越大。"};
+    }
+
     this.render();
 
     const reveal = isCn
@@ -1428,6 +1471,10 @@ const Game = {
     let after = makeup ? ()=>this.makeupDone(yrLabel) : ()=>this.yearSummary(yrLabel, logs);
     // 美女女友"买衣服"攻略事件插在结算前
     if(this._pendingMeinuDress){ this._pendingMeinuDress=false; const nx=after; after=()=>this.meinuDressEvent(nx); }
+    // 高利贷追债·被打住院剧情
+    if(this._pendingDebtBeat){ const info=this._pendingDebtBeat; this._pendingDebtBeat=null; const nx=after; after=()=>this.debtBeatEvent(info, nx); }
+    // 技能解锁全屏动画（最先弹出）
+    if(this._pendingSkillUnlock){ const sk=this._pendingSkillUnlock; this._pendingSkillUnlock=null; const nx=after; after=()=>this.skillUnlock(sk, nx); }
 
     // ---- 健康危机：先住院（花钱保命，警告一次），再不注意才暴毙 ----
     const CRIT=15;
@@ -1453,6 +1500,33 @@ const Game = {
         ["you",`健康 ${before} → ${s.health}。这是最后的警告……以后得给身体留点余地了。`,"think"],
       ],
       choices:[{t:"▶ 出院，继续", cls:"gold", f:next}]});
+  },
+
+  /* 技能解锁：全屏动画 + 说明 */
+  skillUnlock(o, next){
+    this.transition({emoji:o.emoji||"✨", title:o.title, sub:"✨ 技能解锁 ✨", color:o.color||"#3fb950", hold:2300}, ()=>{
+      D({loc:"✨ 技能解锁", tw:true,
+        lines:[
+          ["env",`🎉 您已解锁技能：【${o.title}】`],
+          ["env", o.desc],
+          ["you","能力又上了一个台阶！","think"],
+        ],
+        choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+    });
+  },
+
+  /* 高利贷追债·被打住院 */
+  debtBeatEvent(info, next){
+    const s=this.s;
+    D({loc:"🩸 高利贷追债", tw:true,
+      lines:[
+        ["env","几个纹身大汉堵在门口：「钱呢？三成利可不是闹着玩的！」一顿拳脚招呼下来——"],
+        info.baton
+          ? ["you",`甩棍也没能压住人多势众，还是挨了揍，被抬进医院。健康 -${info.hp}，医药费 ${cursym()}${fmt(info.med)}。`,"think"]
+          : ["you",`你毫无还手之力，被打得住进了医院。健康 -${info.hp}，医药费 ${cursym()}${fmt(info.med)}。${s.hasBaton?"":"（要是有根甩棍傍身就好了……）"}`,"think"],
+        ["env","债不还清，这样的日子就没个头。卧床养伤，也耽误了不少光阴。"],
+      ],
+      choices:[{t:"▶ 咬牙撑住，继续", cls:"gold", f:next}]});
   },
 
   /* 德国：逐门公布成绩（紧张感）+ 学期/总平均 */
@@ -1704,12 +1778,6 @@ const Game = {
     }
     if(s.school && s.yearInSchool<=2 && s.loan<this.loanCap())
       choices.push({t:"🏦 申请助学贷款", sub:`最多 ${E.sym}${fmt(this.loanCap())} · 年息10%（低息）`, cls:"gold", f:()=>this.offerLoan(credits,yrLabel,makeup)});
-    if(!s.flags["grant_"+s.school]){
-      const grant=Math.round(E.live*4);
-      choices.push({t:"🎓 申请助学金", sub:`一次性补助 ${E.sym}${fmt(grant)}（每校限一次）`, f:()=>{
-        s.flags["grant_"+s.school]=true; s.money+=grant; this.render(); this.toast(`助学金 +${E.sym}${fmt(grant)}`); back();
-      }});
-    }
     choices.push({t:"💸 借高利贷", sub:"立刻到账 · 年息30% 利滚利", cls:"danger", f:()=>this.loanShark(credits,yrLabel,makeup)});
     choices.push({t:"🎲 搏一搏（赌一把）", sub:"斗地主 / 赌球 / Polymarket", f:()=>this.gambleMenu(credits,yrLabel,makeup)});
     choices.push({t:"↩ 返回重新分配", f:back});
@@ -1740,7 +1808,7 @@ const Game = {
   gambleMenu(credits, yrLabel, makeup){
     const s=this.s;
     const games=[
-      {k:"ddz", nm:"🃏 斗地主", win:0.5,  mult:2.0, desc:"50% 翻倍"},
+      {k:"ddz", nm:"🃏 斗地主", win:0.5,  mult:2.0, desc:"50% 翻倍 · 可买记牌器提升胜率"},
       {k:"ball",nm:"⚽ 赌球",   win:0.45, mult:2.2, desc:"45% 拿 2.2 倍"},
       {k:"poly",nm:"📊 Polymarket 下注", win:0.4, mult:2.6, desc:"40% 拿 2.6 倍"},
     ];
@@ -1749,29 +1817,53 @@ const Game = {
       choices: games.map(g=>({t:`${g.nm}`, sub:g.desc, f:()=>this.gamblePlay(g, credits, yrLabel, makeup)}))
         .concat([{t:"↩ 不赌了", f:()=>this.cantAfford(credits, yrLabel, makeup)}])});
   },
+  // 记牌器价格（按币种）
+  cardCounterPrice(){ return this.s.cur==="EUR"?300:(this.s.cur==="GBP"?270:2400); },
+  _gbRangeSync(){ const r=document.getElementById("gbAmt"), n=document.getElementById("gbNum"); if(r&&n) n.value=r.value; },
+  _gbNumSync(){ const r=document.getElementById("gbAmt"), n=document.getElementById("gbNum"); if(r&&n){ const v=Math.round(+n.value||0); r.value=clamp(v,+r.min,+r.max); } },
   gamblePlay(g, credits, yrLabel, makeup){
     const s=this.s; const max=s.money;
+    const isDDZ = g.k==="ddz";
+    const hasCC = isDDZ && s.hasCardCounter;
+    const winP = clamp(g.win + (hasCC?0.18:0), 0, 0.95);   // 斗地主 + 记牌器：胜率 +18%
+    const def=Math.round(max/2); const step=Math.max(100,Math.round(max/40));
+    const ccPrice=this.cardCounterPrice();
+    const choices=[];
+    // 斗地主：可花钱购买记牌器提升胜率
+    if(isDDZ && !s.hasCardCounter){
+      choices.push({t:`🎴 买记牌器（${cursym()}${fmt(ccPrice)}）`, sub:`胜率 ${Math.round(g.win*100)}% → ${Math.round((g.win+0.18)*100)}%`, f:()=>{
+        if(s.money<ccPrice){ this.toast("钱不够买记牌器 💸"); return; }
+        s.money-=ccPrice; s.hasCardCounter=true; this.render();
+        this.toast("入手·记牌器 🎴 斗地主胜率提升！");
+        this.gamblePlay(g, credits, yrLabel, makeup);
+      }});
+    }
+    choices.push(
+      {t:"🎲 梭哈！", cls:"gold", f:()=>{
+        const bet=clamp(Math.round(+(document.getElementById("gbNum")||{}).value||0), 0, max);
+        if(bet<=0){ this.toast("押注金额要大于 0"); return; }
+        const win=Math.random()<winP;
+        if(win){ const gain=Math.round(bet*(g.mult-1)); s.money+=gain; this.render();
+          D({loc:`🎲 ${g.nm} · 赢了！`, tw:true, lines:[["env",`🎉 赢了！+${cursym()}${fmt(gain)}（本金 ${cursym()}${fmt(bet)} ×${g.mult}${hasCC?" · 记牌器加成":""}）`],["you","富贵险中求！","think"]],
+            choices:[{t:"↩ 回去分配", cls:"gold", f:()=>this.allocateYear(makeup?credits:null, yrLabel, makeup)},{t:"🎲 再赌一把", f:()=>this.gambleMenu(credits, yrLabel, makeup)}]});
+        } else { s.money=Math.max(0,s.money-bet); this.render();
+          D({loc:`🎲 ${g.nm} · 输了`, tw:true, lines:[["env",`💸 输光本金 -${cursym()}${fmt(bet)}。`],["you","……下次一定。","think"]],
+            choices:[{t:"↩ 回去想办法", cls:"gold", f:()=>this.cantAfford(credits, yrLabel, makeup)}]});
+        }
+      }},
+      {t:"↩ 返回", f:()=>this.gambleMenu(credits, yrLabel, makeup)}
+    );
     D({loc:`🎲 ${g.nm}`,
-      lines:[["env",`${g.desc}。押多少？输了血本无归，赢了乘 ${g.mult}。`]],
+      lines:[["env",`${g.desc}${hasCC?"（已装记牌器 🎴）":""}。押多少？可拖动或直接输入。输了血本无归，赢了乘 ${g.mult}。`]],
       extra:`<div class="credit-pick">
-        <div class="big"><span id="gbv">${Math.round(max/2)}</span><small style="font-size:16px;color:var(--dim)"> ${cursym()}</small></div>
-        <input type="range" id="gbAmt" min="0" max="${max}" step="${Math.max(100,Math.round(max/40))}" value="${Math.round(max/2)}"
-          oninput="document.getElementById('gbv').textContent=this.value">
+        <div class="big"><input type="number" id="gbNum" value="${def}" min="0" max="${max}" inputmode="numeric"
+            style="width:140px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:30px;text-align:center;padding:4px 6px"
+            oninput="Game._gbNumSync()"><small style="font-size:16px;color:var(--dim)"> ${cursym()}</small></div>
+        <input type="range" id="gbAmt" min="0" max="${max}" step="${step}" value="${def}"
+          oninput="Game._gbRangeSync()">
+        <div class="hint">手头 ${cursym()}${fmt(max)} · 当前胜率 ${Math.round(winP*100)}%</div>
       </div>`,
-      choices:[
-        {t:"🎲 梭哈！", cls:"gold", f:()=>{
-          const bet=Math.min(max, Math.max(0, Math.round(+document.getElementById("gbAmt").value||0)));
-          const win=Math.random()<g.win;
-          if(win){ const gain=Math.round(bet*(g.mult-1)); s.money+=gain; this.render();
-            D({loc:`🎲 ${g.nm} · 赢了！`, tw:true, lines:[["env",`🎉 赢了！+${cursym()}${fmt(gain)}（本金 ${cursym()}${fmt(bet)} ×${g.mult}）`],["you","富贵险中求！","think"]],
-              choices:[{t:"↩ 回去分配", cls:"gold", f:()=>this.allocateYear(credits, yrLabel, makeup)},{t:"🎲 再赌一把", f:()=>this.gambleMenu(credits, yrLabel, makeup)}]});
-          } else { s.money=Math.max(0,s.money-bet); this.render();
-            D({loc:`🎲 ${g.nm} · 输了`, tw:true, lines:[["env",`💸 输光本金 -${cursym()}${fmt(bet)}。`],["you","……下次一定。","think"]],
-              choices:[{t:"↩ 回去想办法", cls:"gold", f:()=>this.cantAfford(credits, yrLabel, makeup)}]});
-          }
-        }},
-        {t:"↩ 返回", f:()=>this.gambleMenu(credits, yrLabel, makeup)}
-      ]});
+      choices});
   },
 
   /* 退学 / 毕业未走红旗 后的去向（按线路分流） */
@@ -1840,10 +1932,11 @@ const Game = {
           lines:[
             ["env",`🎓 获得【哈工大（威海）毕业证】！学士帽抛向威海的天空，平均绩点 ${avgGpa(s)} 分。`],
             ["unc","大学毕业啦！来，三舅给你指条明路——走个关系，进红旗汽车咋样？体面工作，包分配！",{big:true}],
-            ["you","红旗、出国、还是回家……人生第一个大岔路口。","think"],
+            ["you","读研、红旗、出国、还是回家……人生第一个大岔路口。","think"],
           ],
           choices:[
-            {t:"🚩 走红旗支线", sub:"三舅帮忙进红旗汽车", cls:"gold", f:()=>this.endingHongqi()},
+            {t:"🎓 申请海外硕士", sub:"凭绩点冲慕尼黑 / 稳进斯图加特", cls:"gold", f:()=>this.applyMaster()},
+            {t:"🚩 走红旗支线", sub:"三舅帮忙进红旗汽车", f:()=>this.endingHongqi()},
             {t:"✈️ 去德国重读本科", sub:"不想这么早安定", f:()=>this.enterBraunschweig()},
             {t:`🏯 回${home()}`, sub:"低调生活", cls:"danger", f:()=>this.endingFactoryDog(
               `你婉拒了三舅的好意，回了${home()}。最终还是进了厂。`)}
@@ -2009,12 +2102,20 @@ const Game = {
 
   pickMajor(m){
     const s=this.s; s.major=m;
-    const lines=[["env",`你选择了【${m==="ev"?"电车类":"自动驾驶"}】方向。`]];
-    if(m==="ad"){ s.canStock=true; lines.push(["prof2","自动驾驶玩的是数据与算法——量化机构最爱。顺带，你点亮了新技能「📈 炒股」，每学期初可投资理财。",{big:true}]); }
-    else { lines.push(["prof2","电车方向扎实，毕业进车企对口。好好干。",{big:true}]); }
-    lines.push(["you","方向定了，开整！","think"]);
-    D({loc:"斯图加特 · 开学", art:"stuttgart", tw:true, lines,
-      choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
+    const next=()=>{
+      const lines=[["env",`你选择了【${m==="ev"?"电车类":"自动驾驶"}】方向。`]];
+      if(m==="ad") lines.push(["prof2","自动驾驶玩的是数据与算法——量化机构最爱。",{big:true}]);
+      else lines.push(["prof2","电车方向扎实，毕业进车企对口。好好干。",{big:true}]);
+      lines.push(["you","方向定了，开整！","think"]);
+      D({loc:"斯图加特 · 开学", art:"stuttgart", tw:true, lines,
+        choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
+    };
+    if(m==="ad" && !s.canStock){
+      s.canStock=true;
+      return this.skillUnlock({emoji:"📈", title:"投资理财（炒股）", color:"#ffcc4d",
+        desc:"自动驾驶方向点亮新技能！每年学期初可投资理财一次，本金锁定、年底结算。"}, next);
+    }
+    next();
   },
 
   stuttgartGraduate(){
