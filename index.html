@@ -281,6 +281,8 @@
 const SAVE_KEY = "cangzhou_save_v1";
 const RATE = 8; // 1 € = 8 ¥
 const RATES = {CNY:1, EUR:8, GBP:9.0}; // 兑人民币汇率
+const ACT_WEEKS = 15;   // 一学期周数（兄弟局每周一次）
+const ACT_WEEKLY = 20;  // 每次活动 20 欧
 
 const Game = {
   s:null,
@@ -389,7 +391,7 @@ const Game = {
       ["年龄", s.age+"岁", "", null, ""],
       ["金钱", cursym()+fmt(s.money), "", "money", ""],
       ["健康", s.health, bar(s.health,100,"var(--green)"), "health", ""],
-      ["兄弟好感", s.bro, bar(s.bro,100,"var(--gold)"), "bro", ""],
+      ["兄弟义气", s.bro, bar(s.bro,100,"var(--gold)"), "bro", ""],
       ["情商", s.eq, bar(s.eq,100,"var(--blue)"), "eq", ""],
       ["事业度", s.career, bar(s.career,100,"var(--purple)"), "career", ""],
     ];
@@ -435,7 +437,7 @@ const Game = {
 
   /* ---------- 数值变动 + 飘字 ---------- */
   change(obj){
-    const names={money:"金钱",health:"健康",bro:"兄弟好感",eq:"情商",career:"事业度",age:"年龄",
+    const names={money:"金钱",health:"健康",bro:"兄弟义气",eq:"情商",career:"事业度",age:"年龄",
       gfFavor:"女友好感",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
     const msgs=[];
     for(const k in obj){
@@ -578,7 +580,7 @@ const Game = {
   // 一年开始：斯图加特有兄弟局；慕尼黑只有汉堡事件
   beginYear(){
     const lt=this.s.lineType;
-    if(lt==="stuttgart"){ this.s.semFlags={}; this.semesterStart(); }
+    if(lt==="stuttgart"){ this.s.semFlags={}; this.s.semActivities=[]; this.semesterStart(); }
     else if(lt==="munich"){ this.munichSemester(); }
     else this.studyYear();
   },
@@ -635,7 +637,7 @@ const Game = {
       {k:"intern", nm:"实习", sub: careerOK?`已开启 · 每点≈${cursym()}${fmt(this.internMonthlyPerPoint())}/月`:`无偿积累(事业度<20)`},
     ];
     if(!careerOK) cats.push({k:"work", nm:"打工", sub:"稳定低收入·事业度"}); // 实习解锁后取消打工
-    cats.push({k:"friend", nm:"交友", sub:"兄弟好感·情商"}, {k:"flirt", nm:"把妹", sub:"情商·心情"});
+    cats.push({k:"friend", nm:"交友", sub:"兄弟义气·情商"}, {k:"flirt", nm:"把妹", sub:"情商·心情"});
     const init={study:40,intern:0,work:0,friend:20,flirt:0};
     const E=this.econ();
     const moneyMax=Math.min(s.money, E.socMax);
@@ -707,17 +709,19 @@ const Game = {
     const social = (money.friend||0)+(money.flirt||0);
     const repay = money.repay||0;
     const living = E.live*12;
+    const activity = this.activityCost();
     const income = workInc + internInc;
-    const expense = living + social + repay;
-    return {workInc, internInc, social, repay, living, income, expense, endBal: s.money + income - expense};
+    const expense = living + social + repay + activity;
+    return {workInc, internInc, social, repay, living, activity, income, expense, endBal: s.money + income - expense};
   },
   _allocSync(){
     let used=0;
     document.querySelectorAll('#alloc input').forEach(i=>{ used+=+i.value; document.getElementById("amt_"+i.dataset.k).textContent=i.value; });
-    document.getElementById("poolUsed").textContent=used;
+    const actE=this.activityEnergy(); const tot=used+actE;
+    document.getElementById("poolUsed").textContent = actE? `${used}+${actE}(兄弟局)=${tot}` : used;
     const note=document.getElementById("sleepNote");
-    if(used>100) note.innerHTML=`<span style="color:var(--red)">超 ${used-100}%·睡眠不足⚠️</span>`;
-    else if(used<100) note.innerHTML=`<span style="color:var(--green)">余 ${100-used}%·可休息回血</span>`;
+    if(tot>100) note.innerHTML=`<span style="color:var(--red)">超 ${tot-100}%·睡眠不足⚠️</span>`;
+    else if(tot<100) note.innerHTML=`<span style="color:var(--green)">余 ${100-tot}%·可休息回血</span>`;
     else note.innerHTML=`<span style="color:var(--gold)">刚好</span>`;
     this._budgetSync();
   },
@@ -736,7 +740,7 @@ const Game = {
       `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b>`+
       `<small>（实习 ${sym}${fmt(p.internInc)} · 打工 ${sym}${fmt(p.workInc)}）</small></div>`+
       `<div class="brow">📉 预计开支　<b style="color:var(--red)">-${sym}${fmt(p.expense)}</b>`+
-      `<small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.repay?` · 还贷 ${sym}${fmt(p.repay)}`:""}）</small></div>`+
+      `<small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.activity?` · 兄弟局 ${sym}${fmt(p.activity)}`:""}${p.repay?` · 还贷 ${sym}${fmt(p.repay)}`:""}）</small></div>`+
       `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ❌ 资金不足，无法开学':' ✅'}</div>`;
   },
 
@@ -749,6 +753,10 @@ const Game = {
     s.money-=moneySpent;
     // 助学贷款还款 + 利息
     if(money.repay>0 && s.loan>0){ const pay=Math.min(money.repay, s.loan, s.money); s.loan-=pay; s.money-=pay; }
+    // 兄弟局总费用（每周20€×周数×次数），开学一并扣
+    const actCost=this.activityCost(), actEnergy=this.activityEnergy();
+    if(actCost>0){ s.money=Math.max(0,s.money-actCost); }
+    s.semActivities=[];
 
     const logs=[];
     const isCn = s.gpaSys==="cn100";
@@ -828,7 +836,7 @@ const Game = {
     // ---- 社交：好感度 / 情商 ----
     if(alloc.friend>0||money.friend>0){
       const g=Math.round(alloc.friend*0.25 + (money.friend/E.socUnit)*0.6 + rand(0,4));
-      if(g>0){ s.bro=clamp(s.bro+g,0,100); logs.push(`🍻 兄弟好感 +${g}`); }
+      if(g>0){ s.bro=clamp(s.bro+g,0,100); logs.push(`🍻 兄弟义气 +${g}`); }
     }
     if(alloc.flirt>0||money.flirt>0){
       const g=Math.round(alloc.flirt*0.22 + (money.flirt/E.socUnit)*0.5 + rand(0,4));
@@ -842,9 +850,9 @@ const Game = {
     // ---- 助学贷款利息（10%/年）----
     if(s.loan>0){ s.loan=Math.round(s.loan*1.10); logs.push(`🏦 助学贷款滚息至 ${E.sym}${fmt(s.loan)}（10%/年）`); }
 
-    // ---- 睡眠平衡：精力总量决定健康 ----
+    // ---- 睡眠平衡：精力总量决定健康（兄弟局额外耗精力） ----
     s.age++;
-    const used=(alloc.study||0)+(alloc.intern||0)+(alloc.work||0)+(alloc.friend||0)+(alloc.flirt||0);
+    const used=(alloc.study||0)+(alloc.intern||0)+(alloc.work||0)+(alloc.friend||0)+(alloc.flirt||0)+actEnergy;
     let hpDelta=-rand(0,2); // 年龄自然小幅下降
     if(used>100){
       const deficit=used-100, drop=Math.round(deficit*(rand(20,50)/100));
@@ -1348,7 +1356,7 @@ const Game = {
     const recip = metFeizi?"非子":"兄弟";
     // 甩棍：留给兄弟 / 自己保留（持有甩棍才有此抉择）
     const batonChoice = s.hasBaton ? [
-      {t:`🥢 把甩棍留给${recip}`, sub:"兄弟好感↑，武力值↓", cls:"gold", f:()=>{
+      {t:`🥢 把甩棍留给${recip}`, sub:"兄弟义气↑，武力值↓", cls:"gold", f:()=>{
         s.hasBaton=false; s.keptBaton=false; this.change({bro:12, wuli:-15}); this.render();
         this.toast(`甩棍传承给了${recip} 🥷`); this._stuttFarewell();
       }},
@@ -1372,52 +1380,75 @@ const Game = {
   },
 
   /* ===================== 学期初活动 ===================== */
+  // 本学期已选活动的总费用（每周20€×周数×次数，开学时扣）& 精力消耗
+  activityCost(){ return (this.s.semActivities||[]).length * ACT_WEEKS * ACT_WEEKLY; },
+  activityEnergy(){ return (this.s.semActivities||[]).length * 12; },
   semesterStart(){
     this._scene="semesterStart";
     const s=this.s; const E=this.econ(); const f=s.semFlags||(s.semFlags={});
-    const cost=Math.round(E.live*0.06);
-    const lines=[["bro",`${this.yrLabelFor(s.yearInSchool+1)}开学前，要不要搞点活动？花钱花精力，也可能结识新朋友。`,{big:true}]];
+    const per=ACT_WEEKS*ACT_WEEKLY;
+    const picked=(s.semActivities||[]).length;
+    const lines=[["bro",`${this.yrLabelFor(s.yearInSchool+1)}开学前，搞点活动？兄弟局每周一次、每次 ${E.sym}${ACT_WEEKLY}，整学期 ${E.sym}${fmt(per)}，开学时一并扣，还要费精力。`,{big:true}]];
+    if(picked) lines.push(["env",`本学期已约：${s.semActivities.map(k=>k==="hot"?"火锅":"烧烤").join("、")}（开学扣 ${E.sym}${fmt(this.activityCost())}，耗精力 ${this.activityEnergy()}）`]);
     const choices=[];
-    if(!f.huoguo)  choices.push({t:`🍲 兄弟火锅（${E.sym}${fmt(cost)}）`, sub:"兄弟好感↑ · 可能结识猛人", f:()=>this.doActivity("hot")});
-    if(!f.shaokao) choices.push({t:`🍢 兄弟烧烤（${E.sym}${fmt(cost)}）`, sub:"兄弟好感↑ · 可能结识贵人", f:()=>this.doActivity("bbq")});
+    if(!f.huoguo)  choices.push({t:`🍲 兄弟火锅（${E.sym}${fmt(per)}/学期）`, sub:"兄弟义气↑ · 可能结识猛人", f:()=>this.doActivity("hot")});
+    if(!f.shaokao) choices.push({t:`🍢 兄弟烧烤（${E.sym}${fmt(per)}/学期）`, sub:"兄弟义气↑ · 可能结识贵人", f:()=>this.doActivity("bbq")});
     if(s.canStock && !f.stock) choices.push({t:"📈 炒股投资", sub:"高风险高回报", f:()=>this.stockGame(()=>this.semesterStart())});
-    if(Object.keys(s.friends).length>0) choices.push({t:"🤝 请朋友吃饭（结交）", sub:"花钱涨兄弟好感", f:()=>this.befriendScreen(()=>this.semesterStart())});
+    if(Object.keys(s.friends).length>0) choices.push({t:"🤝 请朋友吃饭（结交）", sub:"花钱涨兄弟义气", f:()=>this.befriendScreen(()=>this.semesterStart())});
     choices.push({t:"📚 开始上课", cls:"gold", f:()=>this.studyYear()});
     D({loc:`${s.school} · 学期初`, lines, choices});
   },
 
+  // 选了火锅/烧烤后，先决定怎么备菜（风险活动）
   doActivity(kind){
-    const s=this.s; const E=this.econ();
-    const cost=Math.round(E.live*0.06);
-    s.semFlags[kind==="hot"?"huoguo":"shaokao"]=true;
-    s.money=Math.max(0,s.money-cost);
-    const broGain=rand(3,7); s.bro=clamp(s.bro+broGain,0,100);
-    s.health=clamp(s.health-rand(0,3),0,100);
-    this.render();
+    const nm=kind==="hot"?"火锅":"烧烤";
+    D({loc:`🍲 兄弟${nm} · 备菜`,
+      lines:[["bro",`整${nm}！分头采购——买对了大家高兴，买错了可要挨一顿喷。你去干啥？`,{big:true}]],
+      choices:[
+        {t:"🥩 去 Kaufland 买肉", sub:"风险 · 费精力", f:()=>this._shop(kind,"跑去 Kaufland 抢特价肉")},
+        {t:"🥬 去亚洲超市买菜", sub:"风险 · 费精力", f:()=>this._shop(kind,"钻进亚超淘食材")},
+        {t:"🥤 出门买饮料", sub:"风险 · 费精力", f:()=>this._shop(kind,"扛回一堆肥宅快乐水")},
+        {t:"🛋️ 懒得动了", sub:"不担风险也无加成", f:()=>this._activityOutcome(kind, 0, null)},
+      ]});
+  },
+  _shop(kind, what){
+    const s=this.s;
+    const succ = Math.random() < clamp(0.5 + s.eq/250 + s.bro/400, 0.35, 0.85);
+    const delta = succ ? rand(4,8) : -rand(3,6);
+    this._activityOutcome(kind, delta, {what, succ});
+  },
+  _activityOutcome(kind, shopBro, shop){
+    const s=this.s; const f=s.semFlags; const nm=kind==="hot"?"火锅":"烧烤";
+    f[kind==="hot"?"huoguo":"shaokao"]=true;
+    s.semActivities=s.semActivities||[]; s.semActivities.push(kind);
+    const baseBro=rand(4,8); const totalBro=Math.max(0,baseBro+(shopBro||0));
+    s.bro=clamp(s.bro+baseBro+(shopBro||0),0,100); this.render();
+    const lines=[];
+    if(shop) lines.push(["env", shop.succ ? `你${shop.what}，办得地道，兄弟们直竖大拇指！（兄弟义气 +${shopBro}）`
+                                          : `你${shop.what}，结果买错了被一顿猛喷……（兄弟义气 ${shopBro}）`]);
+    else lines.push(["env","你懒得动弹，蹭了顿现成的。"]);
+    // 认识新人：兄弟义气越高、人脉越高，越容易
     const pool = kind==="hot" ? ["xuzi","feizi","yong"] : ["kong","garf","jenny"];
     const unmet = pool.filter(id=>!s.friends[id]);
-    const meetProb = clamp(0.45 + s.renmai/200, 0.45, 0.92);
-    if(unmet.length && Math.random()<meetProb){
-      return this.meetPerson(unmet[rand(0,unmet.length-1)], kind, cost, broGain);
-    }
-    D({loc:`${s.school} · ${kind==="hot"?"兄弟火锅":"兄弟烧烤"}`,
-      lines:[["env",`一顿${kind==="hot"?"火锅":"烧烤"}下肚，花了 ${E.sym}${fmt(cost)}，兄弟好感 +${broGain}。`],
-             ["you","下次再聚！","think"]],
-      choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
+    const meetProb = clamp(0.3 + s.bro/160 + s.renmai/220, 0.3, 0.95);
+    if(unmet.length && Math.random()<meetProb) return this.meetPerson(unmet[rand(0,unmet.length-1)], nm, lines);
+    lines.push(["env",`兄弟${nm}下肚，兄弟义气 +${baseBro+(shopBro||0)}。`], ["you","下次再聚！","think"]);
+    D({loc:`${s.school} · 兄弟${nm}`, lines, choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
   },
-
-  meetPerson(id, kind, cost, broGain){
+  meetPerson(id, nm, lines){
     const s=this.s; const p=PEOPLE[id];
     s.friends[id]={fav:10};
     for(const k in p.get){ s[k]=clamp((s[k]||0)+p.get[k],0,100); }
     this.render();
-    D({loc:"🤝 结识新朋友", tw:true,
-      lines:[
-        ["env",`一顿${kind==="hot"?"火锅":"烧烤"}（${cursym()}${fmt(cost)}），兄弟好感 +${broGain}。席间认识了新朋友——`],
-        [id, p.intro, {big:true}],
-        ["you",`结识【${p.nm}】！（${gainText(p.get)}）`,"think"],
-      ],
-      choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
+    lines=lines||[];
+    lines.push(["env","席间还认识了个新朋友——"], [id, p.intro, {big:true}], ["you",`结识【${p.nm}】！（${gainText(p.get)}）`,"think"]);
+    // 加菲猫：心理健康事件
+    if(id==="garf"){
+      const hp=rand(6,14); s.health=clamp(s.health-hp,0,100); this.render();
+      lines.push(["garf","哥们儿，我跟你掏心窝子唠唠我那些破事儿……（一口气倒了三小时苦水）",{big:true}],
+                 ["env",`🧠 心理健康事件：被加菲猫的 emo 暴击，精神内耗，健康 -${hp}。`]);
+    }
+    D({loc:"🤝 结识新朋友", tw:true, lines, choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
   },
 
   befriendScreen(back){
@@ -1430,7 +1461,7 @@ const Game = {
           if(s.money<cost){ this.toast("钱不够"); return; }
           s.money-=cost; const g=rand(4,9);
           s.bro=clamp(s.bro+g,0,100); s.renmai=clamp(s.renmai+rand(1,3),0,100);
-          this.render(); this.toast(`兄弟好感 +${g}`); back();
+          this.render(); this.toast(`兄弟义气 +${g}`); back();
         }},
         {t:"↩ 返回", f:back}
       ]});
@@ -1590,15 +1621,15 @@ const Game = {
       lines:[["xuzi","哥们儿我要结婚啦！合肥办酒，你必须来！",{big:true}],["you","随份子，还是装没看见……","think"]],
       choices:[
         {t:"✈️ 去！（-¥2000）", cls:"gold", f:()=>{ s.flags.hefeiDone=true; s.money=Math.max(0,s.money-2000); this.render(); this.hefeiStory(); }},
-        {t:"🙈 婉拒", sub:"兄弟好感↓", cls:"danger", f:()=>{ s.flags.hefeiDone=true; this.change({bro:-12}); this.shanghaiHub(); }}
+        {t:"🙈 婉拒", sub:"兄弟义气↓", cls:"danger", f:()=>{ s.flags.hefeiDone=true; this.change({bro:-12}); this.shanghaiHub(); }}
       ]});
   },
   hefeiStory(){
     D({loc:"🍲 合肥 · 旭子婚礼", tw:true,
       lines:[["xuzi","兄弟，赏脸当我伴郎呗？",{big:true}],["you","当不当伴郎呢……","think"]],
       choices:[
-        {t:"🙋 接受当伴郎", sub:"兄弟好感↑↑", cls:"gold", f:()=>{ this.change({bro:10}); this.hefeiTaxi(); }},
-        {t:"😪 懒得当了", sub:"兄弟好感小涨", f:()=>{ this.change({bro:3}); this.hefeiEnd(); }}
+        {t:"🙋 接受当伴郎", sub:"兄弟义气↑↑", cls:"gold", f:()=>{ this.change({bro:10}); this.hefeiTaxi(); }},
+        {t:"😪 懒得当了", sub:"兄弟义气小涨", f:()=>{ this.change({bro:3}); this.hefeiEnd(); }}
       ]});
   },
   hefeiTaxi(){
@@ -1609,7 +1640,7 @@ const Game = {
         ["you","赶不及了……放兄弟鸽子，还是硬着头皮折腾过去？","think"],
       ],
       choices:[
-        {t:"📵 放兄弟鸽子（真来不了）", sub:"兄弟好感↓", cls:"danger", f:()=>{ this.change({bro:-8}); this.hefeiEnd(); }},
+        {t:"📵 放兄弟鸽子（真来不了）", sub:"兄弟义气↓", cls:"danger", f:()=>{ this.change({bro:-8}); this.hefeiEnd(); }},
         {t:"🏃 硬着头皮赶过去", sub: s.hasGf?"耽误约会，女友好感↓":"折腾一身", f:()=>{ if(s.hasGf) this.change({gfFavor:-8}); else this.change({health:-3}); this.hefeiEnd(); }}
       ]});
   },
@@ -1990,7 +2021,7 @@ const PEOPLE={
   garf: {nm:"加菲猫",get:{bro:4, eq:6},     intro:"吃了吗您？来来来，整两串，开心最重要！"},
   jenny:{nm:"杰尼龟",get:{xuexi:14},        intro:"考试范围我都划好了，跟着我稳过。"},
 };
-function gainText(get){ const L={bro:"兄弟好感",eq:"情商",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
+function gainText(get){ const L={bro:"兄弟义气",eq:"情商",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
   return Object.keys(get).map(k=>`${L[k]||k}+${get[k]}`).join("，"); }
 function renderLine(l){
   const who=Array.isArray(l)?l[0]:l.who;
@@ -2111,7 +2142,7 @@ function drawWheel(id, segs, isCn){
 function endingStats(s){
   return `<div class="narr sys">📜 人生小结：
 年龄 ${s.age} 岁　·　金钱 ${(s.cur==="EUR"?"€":"¥")}${fmt(s.money)}　·　健康 ${s.health}
-兄弟好感 ${s.bro}　·　情商 ${s.eq}　·　事业度 ${s.career}
+兄弟义气 ${s.bro}　·　情商 ${s.eq}　·　事业度 ${s.career}
 🪪 学生证 ${s.studentIds.length} 张${s.studentIds.length?"（"+s.studentIds.join("、")+"）":""}
 🎓 毕业证 ${s.diplomas.length} 张${s.diplomas.length?"（"+s.diplomas.join("、")+"）":""}</div>`;
 }
