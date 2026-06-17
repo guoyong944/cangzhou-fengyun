@@ -303,6 +303,21 @@ const RATES = {CNY:1, EUR:8, GBP:9.0}; // 兑人民币汇率
 const ACT_WEEKS = 15;   // 一学期周数（兄弟局每周一次）
 const ACT_WEEKLY = 20;  // 每次活动 20 欧
 
+/* 初始角色（籍贯）：各有天赋；非河北则把"沧州"替换为对应家乡 */
+const ORIGINS = {
+  hebei:    {name:"河北人", city:"沧州", emoji:"🏯", tag:"情商高·把妹能力强",
+             intro:"沧州少年，嘴皮子利索，最会哄姑娘开心。"},
+  shandong: {name:"山东人", city:"济南", emoji:"🍶", tag:"兄弟义气成长快",
+             intro:"山东大汉，重情重义，称兄道弟一拍即合。"},
+  shanxi:   {name:"山西人", city:"太原", emoji:"⛏️", tag:"体能强·精力上限更高",
+             intro:"山西后生，身子骨硬实，扛得住熬，时间精力比旁人多。"},
+  anhui:    {name:"安徽人", city:"合肥", emoji:"📚", tag:"智力成长快·擅长考试",
+             intro:"安徽学子，脑子活、会读书，考场上如鱼得水。"},
+  wenzhou:  {name:"温州人", city:"温州", emoji:"💰", tag:"初始资金更多",
+             intro:"温州人，天生会做生意，家底比同龄人厚实。"},
+};
+function home(){ return (Game.s && Game.s.home) || "沧州"; }
+
 const Game = {
   s:null,
 
@@ -325,6 +340,10 @@ const Game = {
       // 进阶数值
       wuli:0, renmai:0, xuexi:0, gfFavor:0, hasGf:false, gfType:null,
       gfSkipSem:-1, netScam:0, gfLoan:0, gaokaoBonus:0,
+      // 籍贯天赋
+      origin:"hebei", home:"沧州",
+      eqMult:1, broMult:1, xuexiMult:1, healthDrainMult:1,
+      energyBonus:0, examBonus:0, gaokaoExam:0,
       friends:{}, major:null, canStock:false, stockLoss:0, keptBaton:true,
       job:null, incomeY:0, costY:0, semFlags:{}, loan:0, shark:0,
       loan:0, internRaiseMult:1,
@@ -377,8 +396,49 @@ const Game = {
   start(){
     this.s = this.fresh();
     this.render();
-    this.sceneCangzhou();
+    this.chooseOrigin();
   },
+
+  /* ---------- 选择初始角色（籍贯） ---------- */
+  chooseOrigin(){
+    this._scene="chooseOrigin";
+    D({loc:"角色创建 · 你打哪儿来？", title:"沧州风云", art:"cangzhou", tw:true,
+      lines:[
+        ["env","2008 年盛夏，你十八岁。命运的牌，先发籍贯——"],
+        ["you","我是哪里人？这决定了我的天赋底子。","think"],
+      ],
+      choices: Object.keys(ORIGINS).map(k=>{
+        const o=ORIGINS[k];
+        return {t:`${o.emoji} ${o.name}`, sub:`${o.tag}　·　家乡：${o.city}`,
+          cls: k==="hebei"?"gold":"", f:()=>this.pickOrigin(k)};
+      })
+    });
+  },
+  pickOrigin(key){
+    this.applyOrigin(key);
+    const o=ORIGINS[key];
+    this.render();
+    D({loc:"角色创建", art:"cangzhou",
+      lines:[
+        ["env",`${o.emoji} 你选择了【${o.name}】——${o.intro}`],
+        ["mom",`咱是${o.city}人，家里就指望你了，争口气！`,{big:true}],
+        ["you", key==="hebei"?"沧州少年，这就开整！":`${o.city}的种，照样能闯出名堂！`,"think"],
+      ],
+      choices:[{t:"🎬 开启我的人生", cls:"gold", f:()=>this.sceneCangzhou()}]});
+  },
+  applyOrigin(key){
+    const s=this.s; const o=ORIGINS[key]||ORIGINS.hebei;
+    s.origin=key; s.home=o.city;
+    // 先归位默认，再按籍贯加成
+    s.eqMult=1; s.broMult=1; s.xuexiMult=1; s.healthDrainMult=1; s.energyBonus=0; s.examBonus=0; s.gaokaoExam=0;
+    if(key==="hebei"){ s.eq=35; s.eqMult=1.6; }                 // 河北：情商/把妹
+    else if(key==="shandong"){ s.bro=35; s.broMult=1.7; }       // 山东：兄弟义气成长快
+    else if(key==="shanxi"){ s.health=100; s.energyBonus=15; s.healthDrainMult=0.55; } // 山西：体能强·更多精力
+    else if(key==="anhui"){ s.xuexiMult=1.7; s.examBonus=0.10; s.gaokaoExam=55; } // 安徽：智力·擅长考试
+    else if(key==="wenzhou"){ s.money=300000; }                 // 温州：初始资金更多
+  },
+  // 精力上限（山西更高，可分配更多）
+  energyCap(){ return 100 + (this.s.energyBonus||0); },
 
   /* ---------- 存读档 ---------- */
   save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({s:this.s, scene:this._scene})); this.toast("已存档 ✓"); }catch(e){ this.toast("存档失败"); } },
@@ -530,15 +590,15 @@ const Game = {
     this._scene="sceneCangzhou";
     this.mark(()=>this.sceneCangzhou());
     D({
-      loc:"第一关 · 沧州 · 18岁", title:"沧州风云", art:"cangzhou", tw:true,
+      loc:`第一关 · ${home()} · 18岁`, title:"沧州风云", art:"cangzhou", tw:true,
       lines:[
-        ["env","盛夏的沧州，蝉鸣聒噪。高考报名点门口，你攥着报名表。"],
-        ["mom","儿啊，咱户口在沧州，本地这竞争……一个萝卜八个坑啊。",{big:true}],
+        ["env",`盛夏的${home()}，蝉鸣聒噪。高考报名点门口，你攥着报名表。`],
+        ["mom",`儿啊，咱户口在${home()}，本地这竞争……一个萝卜八个坑啊。`,{big:true}],
         ["unc","听三舅一句劝，去新疆考！那边分数线松快得多——虽说咱户口不在那儿，但路子嘛，总有的。",{big:true}],
         ["you","高考地点……这第一步，可得想清楚了。","think"],
       ],
       choices:[
-        {t:"🏯 就在沧州考", sub:"竞争激烈·凭真本事", f:()=>this.sceneLocalGaokao()},
+        {t:`🏯 就在${home()}考`, sub:"竞争激烈·凭真本事", f:()=>this.sceneLocalGaokao()},
         {t:"🏜 远赴新疆高考", sub:"需打点 ¥20,000", cls:"gold", f:()=>this.sceneXinjiang()}
       ]
     });
@@ -548,7 +608,7 @@ const Game = {
   sceneLocalGaokao(){
     this._scene="sceneLocalGaokao";
     const s=this.s;
-    const bonus=s.gaokaoBonus||0;
+    const bonus=(s.gaokaoBonus||0)+(s.gaokaoExam||0); // 复读加成 + 安徽考试天赋
     const rolls=[
       {nm:"语文", v:clamp(rand(80,135),0,150)},
       {nm:"数学", v:clamp(rand(60,140),0,150)},
@@ -561,7 +621,7 @@ const Game = {
   revealGaokao(rolls, bonus, branch){
     const sum=rolls.reduce((a,r)=>a+r.v,0);
     const total=sum+bonus;
-    D({loc:"沧州 · 高考放榜", art:"cangzhou", tw:true,
+    D({loc:`${home()} · 高考放榜`, art:"cangzhou", tw:true,
       lines:[
         ["env","查分系统开放。你深吸一口气，输入准考证号——"],
         ["you","成绩……一门一门往外蹦，心都提到嗓子眼了。","think"],
@@ -580,7 +640,7 @@ const Game = {
     let i=0;
     const stepScore=()=>{ const r=rolls[i]; add(r.nm, r.v); i++;
       this._gkTimers.push(setTimeout(i<rolls.length?stepScore:stepBonus, 700)); };
-    const stepBonus=()=>{ if(bonus>0){ add("复读提升", "+"+bonus, "color:var(--green)");
+    const stepBonus=()=>{ if(bonus>0){ add("天赋·复读加成", "+"+bonus, "color:var(--green)");
         this._gkTimers.push(setTimeout(stepTotal, 700)); }
       else stepTotal(); };
     const stepTotal=()=>{ add("总分", total, "color:var(--gold);font-size:26px");
@@ -590,7 +650,7 @@ const Game = {
   localResult(total){
     const s=this.s;
     if(total>=600){
-      return D({loc:"沧州 · 录取结果", art:"cangzhou",
+      return D({loc:`${home()} · 录取结果`, art:"cangzhou",
         lines:[
           ["env",`总分 ${total}！一本线之上，名校在向你招手。`],
           ["mom","我儿子有出息！这分数，连同济都够得着！",{big:true}],
@@ -602,7 +662,7 @@ const Game = {
         ]});
     }
     if(total>=500){
-      return D({loc:"沧州 · 录取结果", art:"cangzhou",
+      return D({loc:`${home()} · 录取结果`, art:"cangzhou",
         lines:[
           ["env",`总分 ${total}，过了一本线，可离同济差着一口气。`],
           ["mom","哈工大威海分校录取你啦！985，知足吧儿子！",{big:true}],
@@ -611,7 +671,7 @@ const Game = {
         choices:[{t:"🛠 去哈工大（威海）报到", cls:"gold", f:()=>this.enterHarbin()}]});
     }
     // 落榜
-    D({loc:"沧州 · 落榜", art:"cangzhou", tw:true,
+    D({loc:`${home()} · 落榜`, art:"cangzhou", tw:true,
       lines:[
         ["env",`总分 ${total}……连本科线都没够着。空气一下子凝固了。`],
         ["mom","别灰心，复读一年再来，或者……去你三舅说的新疆试试？",{big:true}],
@@ -658,7 +718,7 @@ const Game = {
             lines:[
               ["you","老师，我要报同济大学。"],
               ["admin","（头也不抬）系统提示——「外地考试禁止报名同济大学」。想上同济，只能回原籍复读、用本地学籍考。",{big:true}],
-              ["you","……要么换学校，要么回沧州复读，搏一把同济。","think"],
+              ["you",`……要么换学校，要么回${home()}复读，搏一把同济。`,"think"],
             ],
             choices:[
               {t:"🛠 改报哈工大（威海）", sub:"保底985", cls:"gold", f:()=>this.enterHarbin()},
@@ -752,7 +812,7 @@ const Game = {
       const emo = lt==="harbin"?"🛠":(lt==="tongji"?"🏛":(lt==="london"?"🇬🇧":"🇩🇪"));
       return {p:emo+" "+s.school, t:this.yrLabelFor(Math.max(1,s.yearInSchool))};
     }
-    return {p:"🏯 沧州", t:`${s.age}岁`};
+    return {p:`🏯 ${s.home||"沧州"}`, t:`${s.age}岁`};
   },
   // 一年开始：斯图加特有兄弟局；慕尼黑只有汉堡事件
   beginYear(){
@@ -915,7 +975,7 @@ const Game = {
       lines:[
         makeup
           ? ["prof2",`补课学期：强制补修 ${credits} 个挂科学分。通过的课程会从"已挂学分"里移除！正常分配精力即可。`,{big:true}]
-          : ["bro",`精力随便分，基准 100。超过 100 睡眠不足随机掉健康；没分完当休息、按余量随机回血。`],
+          : ["bro",`精力随便分，基准 ${this.energyCap()}${s.energyBonus?`（${ORIGINS[s.origin].name}体能好，+${s.energyBonus}）`:""}。超过则睡眠不足随机掉健康；没分完当休息、按余量随机回血。`],
         ["bro", careerOK
           ? `事业度≥20，实习开启赚钱模式！每点≈${cursym()}${fmt(this.internMonthlyPerPoint())}/月。\n🏠 本学期生活费 ${E.sym}${fmt(E.live)}/月。`
           : `事业度<20，实习只能无偿攒经验（涨事业度）。\n🏠 本学期生活费 ${E.sym}${fmt(E.live)}/月。`],
@@ -926,7 +986,7 @@ const Game = {
           <input type="range" min="0" max="100" step="5" value="${init[c.k]}" data-k="${c.k}" oninput="Game._allocSync()">
           <div class="amt" id="amt_${c.k}">${init[c.k]}</div>
         </div>`).join("")}
-        <div class="pool">已用精力 <b id="poolUsed">0</b> / 100　<span id="sleepNote"></span></div>
+        <div class="pool">已用精力 <b id="poolUsed">0</b> / ${this.energyCap()}　<span id="sleepNote"></span></div>
       </div>
       <div class="alloc">
         <div style="font-size:13px;margin-bottom:4px">💰 投入金钱</div>
@@ -979,8 +1039,9 @@ const Game = {
     const actE=this.activityEnergy(); const tot=used+actE;
     document.getElementById("poolUsed").textContent = actE? `${used}+${actE}(兄弟局)=${tot}` : used;
     const note=document.getElementById("sleepNote");
-    if(tot>100) note.innerHTML=`<span style="color:var(--red)">超 ${tot-100}%·睡眠不足⚠️</span>`;
-    else if(tot<100) note.innerHTML=`<span style="color:var(--green)">余 ${100-tot}%·可休息回血</span>`;
+    const cap=this.energyCap();
+    if(tot>cap) note.innerHTML=`<span style="color:var(--red)">超 ${tot-cap}%·睡眠不足⚠️</span>`;
+    else if(tot<cap) note.innerHTML=`<span style="color:var(--green)">余 ${cap-tot}%·可休息回血</span>`;
     else note.innerHTML=`<span style="color:var(--gold)">刚好</span>`;
     this._budgetSync();
   },
@@ -1032,7 +1093,7 @@ const Game = {
     // 难度修正：>0 更易过；慕尼黑“严出”更难
     const diffMap={braunschweig:0.14, stuttgart:0.14, london:0.14, munich:-0.12};
     const diffBonus = diffMap[s.lineType]||0;
-    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400 + diffBonus;
+    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400 + diffBonus + (s.examBonus||0);
     passRate=clamp(passRate,0.12,0.99);
     // 中国百分制基准（高=好）
     const gpaBaseCn = 55 + studyW*40 - load*22 + (s.xuexi||0)*0.12 + diffBonus*40;
@@ -1098,9 +1159,11 @@ const Game = {
       }
     }
 
+    // ---- 学习力随用功增长（安徽人成长更快）----
+    if(alloc.study>0){ const xg=this.addStat("xuexi", Math.round(alloc.study*0.05*(s.xuexiMult||1))); if(xg>0) logs.push(`🧠 勤学苦练，学习力 +${xg}`); }
     // ---- 社交：兄弟义气（边际递减）----
     if(alloc.friend>0||money.friend>0){
-      const raw=Math.round(alloc.friend*0.25 + (money.friend/E.socUnit)*0.6 + rand(0,4));
+      const raw=Math.round((alloc.friend*0.25 + (money.friend/E.socUnit)*0.6 + rand(0,4)) * (s.broMult||1));
       const g=this.addStat("bro", raw);
       if(g>0) logs.push(`🍻 兄弟义气 +${g}`);
     }
@@ -1110,7 +1173,7 @@ const Game = {
     const flirtMoney = money.flirt/E.socUnit; // 归一化
     if(!s.hasGf){
       // 单身时把妹只历练情商（脱单改由情商达标后主动选择，见 gfUnlock）
-      if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round(alloc.flirt*0.22 + flirtMoney*0.5 + rand(0,3))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}`); }
+      if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round((alloc.flirt*0.22 + flirtMoney*0.5 + rand(0,3))*(s.eqMult||1))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}`); }
     } else {
       const t=s.gfType;
       // 维系满意度：不同类型侧重不同
@@ -1133,7 +1196,7 @@ const Game = {
         logs.push(`💎 富姐女友·随手塞了零花钱 +${E.sym}${fmt(allowance)}（陪她应酬 健康 -${hp}）`);
       } else if(t==="xueba"){
         const cost=Math.round(E.live*1); s.money=Math.max(0,s.money-cost);
-        const xg=this.addStat("xuexi", rand(4,9));
+        const xg=this.addStat("xuexi", Math.round(rand(4,9)*(s.xuexiMult||1)));
         logs.push(`🤓 学霸女友·一起自习 -${E.sym}${fmt(cost)}，学习力 +${xg}`);
       } else if(t==="net"){
         if(Math.random()<0.65){
@@ -1168,13 +1231,14 @@ const Game = {
 
     // ---- 睡眠平衡：精力总量决定健康（兄弟局额外耗精力） ----
     s.age++;
+    const cap=this.energyCap();
     const used=(alloc.study||0)+(alloc.intern||0)+(alloc.work||0)+(alloc.friend||0)+(alloc.flirt||0)+actEnergy;
     let hpDelta=-rand(0,2); // 年龄自然小幅下降
-    if(used>100){
-      const deficit=used-100, drop=Math.round(deficit*(rand(20,50)/100));
+    if(used>cap){
+      const deficit=used-cap, drop=Math.round(deficit*(rand(20,50)/100)*(s.healthDrainMult||1));
       hpDelta-=drop; logs.push(`😵 精力透支 ${deficit}%，睡眠不足，健康 -${drop}`);
-    } else if(used<100){
-      const surplus=100-used, heal=Math.round(surplus*(rand(10,35)/100));
+    } else if(used<cap){
+      const surplus=cap-used, heal=Math.round(surplus*(rand(10,35)/100));
       hpDelta+=heal; logs.push(`😴 余力 ${surplus}%，休整恢复，健康 +${heal}`);
     }
     s.health=clamp(s.health+hpDelta,0,100);
@@ -1538,8 +1602,8 @@ const Game = {
     this._scene="afterSchoolFail";
     this.mark(()=>this.afterSchoolFail());
     const lt=this.s.lineType;
-    const goCangzhou={t:"🏯 回沧州", sub:"认命", cls:"danger", f:()=>this.endingFactoryDog(
-      "你回到了沧州，进了那家熟悉的工厂。流水线的灯，二十四小时不灭。")};
+    const goCangzhou={t:`🏯 回${home()}`, sub:"认命", cls:"danger", f:()=>this.endingFactoryDog(
+      `你回到了${home()}，进了那家熟悉的工厂。流水线的灯，二十四小时不灭。`)};
 
     if(lt==="munich"){
       return D({loc:"慕尼黑 · 退学", tw:true,
@@ -1604,8 +1668,8 @@ const Game = {
           choices:[
             {t:"🚩 走红旗支线", sub:"三舅帮忙进红旗汽车", cls:"gold", f:()=>this.endingHongqi()},
             {t:"✈️ 去德国重读本科", sub:"不想这么早安定", f:()=>this.enterBraunschweig()},
-            {t:"🏯 回沧州", sub:"低调生活", cls:"danger", f:()=>this.endingFactoryDog(
-              "你婉拒了三舅的好意，回了沧州。最终还是进了厂。")}
+            {t:`🏯 回${home()}`, sub:"低调生活", cls:"danger", f:()=>this.endingFactoryDog(
+              `你婉拒了三舅的好意，回了${home()}。最终还是进了厂。`)}
           ]});
       });
     }
@@ -1794,7 +1858,7 @@ const Game = {
       lines:[
         ["env",`🎓 获得【斯图加特大学硕士毕业证】！毕业绩点 ${avgGpa(s)}/5.0，方向：${s.major==="ev"?"电车类":"自动驾驶"}。`],
         (metFeizi?["feizi","哥，你要回国了啊……那根甩棍，跟你出生入死，留个念想给兄弟？",{big:true}]
-                :["you","收拾行李，准备回国发展。要不把这根甩棍传给沧州的兄弟？","think"]),
+                :["you",`收拾行李，准备回国发展。要不把这根甩棍传给${home()}的兄弟？`,"think"]),
       ],
       choices: batonChoice});
   },
@@ -2202,13 +2266,13 @@ const Game = {
   endingFactoryDog(text){
     this._scene="sceneCangzhou";
     this.toCNY(); this.render();
-    this.endingSplash({emoji:"🏭", title:"沧州厂狗", sub:"BAD END", color:"#8b98a8"}, ()=>{
+    this.endingSplash({emoji:"🏭", title:`${home()}厂狗`, sub:"BAD END", color:"#8b98a8"}, ()=>{
       D({loc:"结局 · 厂狗", art:"factory", tw:true,
         lines:[
           ["env",text],
           ["fore","新来的？别愣着，流水线那头缺人，跟我走吧。",{big:true}],
           ["you","路灯下那笼小笼包的味道……好像还在。","think"],
-          ["end","【结局：沧州厂狗】🐕\n日复一日，三班倒。工资够吃饭，够交房租。"],
+          ["end",`【结局：${home()}厂狗】🐕\n日复一日，三班倒。工资够吃饭，够交房租。`],
         ],
         extra:endingStats(this.s),
         choices:this._badEndChoices()});
@@ -2229,7 +2293,7 @@ const Game = {
             lines:[
               ["hr","……这是优化通知单。燃油车不行了，订单缩水，部门合并。对不住。",{big:true}],
               ["you","体面，原来是有期限的。","think"],
-              ["end","【结局：红旗下岗·重返沧州】🚩→🏯\n你拎着纸箱回到沧州，最终又走进了那家工厂。"],
+              ["end",`【结局：红旗下岗·重返${home()}】🚩→🏯\n你拎着纸箱回到${home()}，最终又走进了那家工厂。`],
             ],
             extra:endingStats(this.s),
             choices:this._badEndChoices()});
@@ -2239,13 +2303,13 @@ const Game = {
 
   endingBuffett(){
     this._scene="endingBuffett"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    this.endingSplash({emoji:"🏆", title:"沧州巴菲特", sub:"TRUE END · 财务自由", color:"#ffcc4d"}, ()=>{
-      D({loc:"🏆 结局 · 沧州巴菲特", art:"shanghai", tw:true,
+    this.endingSplash({emoji:"🏆", title:`${home()}巴菲特`, sub:"TRUE END · 财务自由", color:"#ffcc4d"}, ()=>{
+      D({loc:`🏆 结局 · ${home()}巴菲特`, art:"shanghai", tw:true,
         lines:[
           ["env",`资产突破 ¥${fmt(s.money)}${s.hasGf?"，身边还有她。":"。"} 财务自由达成。`],
           s.hasGf?["gf","我们做到了！以后想去哪就去哪～",{big:true}]
                  :["you","一个人，也终于把这一千万搞定了。",{big:true}],
-          ["end","【结局：沧州巴菲特】🏆\n从厂区少年到财务自由，沧州出了个巴菲特。"],
+          ["end",`【结局：${home()}巴菲特】🏆\n从厂区少年到财务自由，${home()}出了个巴菲特。`],
         ],
         extra:endingStats(s),
         choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
@@ -2260,7 +2324,7 @@ const Game = {
           ["env","燃油车的黄昏来临，车企一轮轮裁员。"],
           ["hr","公司要降本增效……这是优化通知单。对不住。",{big:true}],
           ["you","在上海拼了这些年，到头来还是被时代抛下。","think"],
-          ["end","【结局：上海车企版·下岗回乡】🚗→🏯\n你拎着纸箱回到沧州，又走进了那家工厂。"],
+          ["end",`【结局：上海车企版·下岗回乡】🚗→🏯\n你拎着纸箱回到${home()}，又走进了那家工厂。`],
         ],
         extra:endingStats(s),
         choices:this._badEndChoices()});
@@ -2269,12 +2333,12 @@ const Game = {
 
   endingDelivery(reason){
     this._scene="endingDelivery"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    this.endingSplash({emoji:"🛵", title:"沧州外卖员", sub:"BAD END", color:"#ff7a3c"}, ()=>{
-      D({loc:"🛵 结局 · 沧州外卖员", art:"factory", tw:true,
+    this.endingSplash({emoji:"🛵", title:`${home()}外卖员`, sub:"BAD END", color:"#ff7a3c"}, ()=>{
+      D({loc:`🛵 结局 · ${home()}外卖员`, art:"factory", tw:true,
         lines:[
-          ["env",`${reason||"账户见底"}。在上海再也撑不下去，你回了沧州。`],
+          ["env",`${reason||"账户见底"}。在上海再也撑不下去，你回了${home()}。`],
           ["you","送一单挣几块钱，至少……还能跑得动。","think"],
-          ["end","【结局：沧州外卖员】🛵\n超时要扣钱，红灯也得闯——生活的赛道，没有终点。"],
+          ["end",`【结局：${home()}外卖员】🛵\n超时要扣钱，红灯也得闯——生活的赛道，没有终点。`],
         ],
         extra:endingStats(s),
         choices:this._badEndChoices()});
