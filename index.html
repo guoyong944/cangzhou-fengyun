@@ -42,10 +42,17 @@
     padding:3px 4px 4px; text-align:center;}
   .stat .lbl{font-size:8.5px; color:var(--dim); margin-bottom:1px;}
   .stat .val{font-size:11px; font-weight:700; line-height:1.1;}
-  .stat .dl{font-size:9px; font-weight:800; margin-left:2px;}
-  .stat .dl.up{color:var(--green);} .stat .dl.down{color:var(--red);}
-  @keyframes dlpop{0%{opacity:0; transform:translateY(4px);}100%{opacity:1; transform:translateY(0);}}
-  .stat .dl{display:inline-block; animation:dlpop .4s ease both;}
+  .stat{position:relative; overflow:visible;}
+  .stat .dl{display:inline-block; margin-left:4px; padding:1px 6px 2px; border-radius:8px;
+    font-size:10px; font-weight:900; color:#fff; vertical-align:middle; line-height:1.3;
+    animation:dlIn .55s cubic-bezier(.2,.9,.3,1) both;}
+  .stat .dl.up{background:linear-gradient(180deg,#46c95a,#2f9b43); box-shadow:0 0 9px rgba(63,185,80,.65);}
+  .stat .dl.down{background:linear-gradient(180deg,#ff6b6b,#d83b3b); box-shadow:0 0 9px rgba(255,91,91,.65);}
+  @keyframes dlIn{0%{opacity:0; transform:translateY(-9px) scale(.4);}55%{transform:translateY(0) scale(1.28);}100%{opacity:1; transform:scale(1);}}
+  .stat.chg-up{animation:glowUp 1.9s ease;}
+  .stat.chg-down{animation:glowDown 1.9s ease;}
+  @keyframes glowUp{0%,100%{box-shadow:none;}30%{box-shadow:0 0 0 1px rgba(63,185,80,.85),0 0 14px rgba(63,185,80,.55);}}
+  @keyframes glowDown{0%,100%{box-shadow:none;}30%{box-shadow:0 0 0 1px rgba(255,91,91,.85),0 0 14px rgba(255,91,91,.55);}}
   .stat.bg-green{background:rgba(63,185,80,.16); border-color:#2e6b38;}
   .stat.bg-yellow{background:rgba(255,204,77,.14); border-color:#6b5a1a;}
   .stat.bg-red{background:rgba(255,91,91,.16); border-color:#6b2a2a;}
@@ -409,13 +416,16 @@ const Game = {
     if(s.wuli>0)    st.push(["武力值", s.wuli, bar(s.wuli,100,"var(--red)"), "wuli", ""]);
     if(s.xuexi>0)   st.push(["学习力", s.xuexi, bar(s.xuexi,100,"#9ccc65"), "xuexi", ""]);
     const dlt=this._statDeltas||{};
+    let dIdx=0;
     document.getElementById("stats").innerHTML = st.map(([l,v,b,key,bg])=>{
-      let d="";
+      let d="", chg="";
       if(key && dlt[key]){ const dv=dlt[key];
-        const txt = key==="money" ? (dv>=0?"+":"-")+cursym()+fmt(Math.abs(dv)) : (dv>=0?"+":"")+dv;
-        d=`<span class="dl ${dv>=0?'up':'down'}">${dv>=0?'↑':'↓'}${txt.replace('-','').replace('+','')}</span>`;
+        const num = key==="money" ? cursym()+fmt(Math.abs(dv)) : Math.abs(dv);
+        const delay=(dIdx*0.09).toFixed(2); dIdx++;
+        d=`<span class="dl ${dv>=0?'up':'down'}" style="animation-delay:${delay}s">${dv>=0?'＋':'－'}${num}</span>`;
+        chg = dv>=0?" chg-up":" chg-down";
       }
-      return `<div class="stat ${bg||''}"><div class="lbl">${l}</div><div class="val">${v}${d}</div>${b}</div>`;
+      return `<div class="stat ${bg||''}${chg}"><div class="lbl">${l}</div><div class="val">${v}${d}</div>${b}</div>`;
     }).join("");
 
     // 当前地点 / 学期（醒目）
@@ -479,7 +489,8 @@ const Game = {
   _showDeltas(d){
     this._statDeltas=d; this.render();
     clearTimeout(this._deltaTimer);
-    this._deltaTimer=setTimeout(()=>{ this._statDeltas=null; this.render(); }, 7000);
+    // 长时间保留（直到下个学期结算前），仅做兜底清除
+    this._deltaTimer=setTimeout(()=>{ this._statDeltas=null; this.render(); }, 30000);
   },
 
   /* 命运抉择点存档 / 坏结局回滚 */
@@ -763,6 +774,7 @@ const Game = {
   resolveYear(credits, alloc, money, yrLabel, makeup){
     const s=this.s;
     const E=this.econ();
+    this._statDeltas=null; clearTimeout(this._deltaTimer); // 清掉上学期的变化箭头
     this._semSnap=this._snapStats(); // 学期开始快照（用于仪表盘变化箭头）
     const moneySpent=(money.friend||0)+(money.flirt||0);
     s.money-=moneySpent;
@@ -1059,7 +1071,7 @@ const Game = {
     }
     choices.push({t:"🚪 主动退学", sub:"放弃学业", cls:"danger", f:()=>this.confirmDropout()});
 
-    const lines=[["env","📊 本学期数值变化已显示在顶部仪表盘 ↑"]];
+    const lines=[["env","📊 本学期各项变化见顶部仪表盘 ↑（绿色＋为上升、红色－为下降）"]];
     // 女友事件
     if(this._gfEvent==="found"){ lines.push(["gf","在一起吧～以后请多关照！",{big:true}],["env","💕 你脱单了！情商面板已切换为「女友好感」。把妹的时间与金钱别省，否则会闹分手。"]); }
     else if(this._gfEvent==="warn"){ lines.push(["gf","你最近是不是不太上心？我们好好谈谈。",{big:true}],["env","⚠️ 吵架预警：女友好感跌破 60！再不上心就要分手了。"]); }
