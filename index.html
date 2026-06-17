@@ -747,15 +747,22 @@ const Game = {
   },
   repeatLocal(){
     const s=this.s;
+    const cost=2500*12; // 一年复读生活费（人民币）
+    // 资金耗光，撑不起又一年复读 → 外卖员结局
+    if(s.money<cost){
+      return this.endingDelivery("复读耗尽家底",
+        `复读年复一年，盘缠耗尽，大学梦终究碎了。${home()}的街头，多了一个戴头盔的身影。`);
+    }
     s.age+=1;
-    const cost=2500*12; // 一年生活费（人民币）
-    s.money=Math.max(0,s.money-cost);
+    s.money-=cost;
     s.gaokaoBonus=(s.gaokaoBonus||0)+rand(25,55); // 复读：下次分数概率提升
     this.render();
+    const broke = s.money<cost; // 下一年已撑不起，给个提示
     D({loc:"复读一年后", art:"cangzhou", tw:true,
       lines:[
         ["env",`复读这一年，你一头扎进题海。生活费花掉 ¥${fmt(cost)}，转眼又到六月。`],
-        ["you","这次，必须考出去！","think"],
+        broke ? ["you","钱袋子见底了……这怕是最后一搏，再不中就得去送外卖了。","think"]
+              : ["you","这次，必须考出去！","think"],
       ],
       choices:[{t:"📝 再战高考", cls:"gold", f:()=>this.sceneLocalGaokao()}]});
   },
@@ -2441,12 +2448,12 @@ const Game = {
     });
   },
 
-  endingDelivery(reason){
+  endingDelivery(reason, intro){
     this._scene="endingDelivery"; const s=this.s; s.costY=0; this.toCNY(); this.render();
     this.endingSplash({emoji:"🛵", title:`${home()}外卖员`, sub:"BAD END", color:"#ff7a3c"}, ()=>{
       D({loc:`🛵 结局 · ${home()}外卖员`, art:"factory", tw:true,
         lines:[
-          ["env",`${reason||"账户见底"}。在上海再也撑不下去，你回了${home()}。`],
+          ["env", intro || `${reason||"账户见底"}。在上海再也撑不下去，你回了${home()}。`],
           ["you","送一单挣几块钱，至少……还能跑得动。","think"],
           ["end",`【结局：${home()}外卖员】🛵\n超时要扣钱，红灯也得闯——生活的赛道，没有终点。`],
         ],
