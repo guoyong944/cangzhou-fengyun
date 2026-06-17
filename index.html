@@ -141,6 +141,30 @@
   @keyframes gkPop{0%{opacity:0; transform:translateY(12px) scale(.7);}
     60%{transform:translateY(0) scale(1.18);}100%{opacity:1; transform:scale(1);}}
 
+  /* ---------- 角色选择落地页 ---------- */
+  .landing #topbar, .landing .toolbar{ display:none !important; }
+  .hero{ text-align:center; padding:7vh 6px 2vh; }
+  .hero .logo{ font-size:46px; font-weight:900; letter-spacing:6px; line-height:1.1;
+    background:linear-gradient(120deg,#ffcc4d,#ff7a3c,#ff5b8d);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 2px 14px rgba(255,150,60,.4)); animation:heroIn .8s ease both; }
+  .hero .tag{ color:var(--dim); font-size:13px; margin-top:12px; line-height:1.8; animation:heroIn .8s .15s ease both; }
+  .hero .pick-hint{ color:var(--gold); font-size:13px; margin:20px 0 6px; font-weight:700; animation:heroIn .8s .3s ease both; }
+  @keyframes heroIn{from{opacity:0; transform:translateY(18px);} to{opacity:1; transform:translateY(0);}}
+  .origins{ display:flex; flex-direction:column; gap:11px; padding:4px 4px 28px; }
+  .ocard{ display:flex; align-items:center; gap:14px; text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:13px 16px;
+    cursor:pointer; transition:transform .15s, border-color .15s, box-shadow .15s; animation:ocardIn .5s ease both; }
+  .ocard:nth-child(1){animation-delay:.05s} .ocard:nth-child(2){animation-delay:.12s}
+  .ocard:nth-child(3){animation-delay:.19s} .ocard:nth-child(4){animation-delay:.26s} .ocard:nth-child(5){animation-delay:.33s}
+  .ocard:active{ transform:scale(.97); }
+  .ocard:hover{ border-color:var(--gold); box-shadow:0 0 0 1px var(--gold),0 6px 20px rgba(255,204,77,.18); transform:translateY(-2px); }
+  .ocard .oemoji{ font-size:38px; flex:0 0 auto; width:50px; text-align:center; }
+  .ocard .oname{ font-size:19px; font-weight:800; }
+  .ocard .otag{ font-size:12.5px; color:var(--gold); margin-top:3px; }
+  .ocard .ocity{ font-size:11.5px; color:var(--dim); margin-top:2px; }
+  @keyframes ocardIn{from{opacity:0; transform:translateY(16px) scale(.96);} to{opacity:1; transform:translateY(0) scale(1);}}
+
   /* ---------- 动画 ---------- */
   @keyframes fadeUp{from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:translateY(0);}}
   .anim-in{animation:fadeUp .42s cubic-bezier(.2,.7,.3,1) both;}
@@ -318,6 +342,18 @@ const ORIGINS = {
 };
 function home(){ return (Game.s && Game.s.home) || "沧州"; }
 
+/* 道具系统：价格按当前币种取值 */
+const ITEMS = {
+  baton: {key:"baton", flag:"hasBaton", name:"甩棍",   emoji:"🥢", price:{CNY:1500, EUR:200,  GBP:200},
+          desc:"防身利器·斯图加特防阿鲁巴·退学申诉加成"},
+  boots: {key:"boots", flag:"hasBoots", name:"马丁靴", emoji:"🥾", price:{CNY:1500, EUR:300,  GBP:280},
+          desc:"踩谁谁横·气场全开·社交涨兄弟义气更快(+武力)"},
+  hair:  {key:"hair",  flag:"hasHair",  name:"大背头", emoji:"💇", price:{CNY:300,  EUR:50,   GBP:45},
+          desc:"油头锃亮·魅力拉满·把妹/维系女友更有效"},
+  car:   {key:"car",   flag:"hasCar",   name:"汽车",   emoji:"🚗", price:{CNY:60000, EUR:8000, GBP:7500},
+          desc:"帮女神搬家、带她去Kaufland买菜·女友好感稳涨·攻略神器"},
+};
+
 const Game = {
   s:null,
 
@@ -328,7 +364,7 @@ const Game = {
       age:18, money:160000, cur:"CNY", health:100,
       bro:20, eq:20, career:0,
       // 装备/外观（甩棍是沧州少年的傍身家伙，开局自带）
-      hasBaton:true, hasBoots:false, hasHair:false,
+      hasBaton:true, hasBoots:false, hasHair:false, hasCar:false,
       // 收藏
       studentIds:[], diplomas:[],
       // 进度
@@ -399,32 +435,32 @@ const Game = {
     this.chooseOrigin();
   },
 
-  /* ---------- 选择初始角色（籍贯） ---------- */
+  /* ---------- 选择初始角色（籍贯）：简洁落地页，无仪表盘 ---------- */
   chooseOrigin(){
     this._scene="chooseOrigin";
-    D({loc:"角色创建 · 你打哪儿来？", title:"沧州风云", art:"cangzhou", tw:true,
-      lines:[
-        ["env","2008 年盛夏，你十八岁。命运的牌，先发籍贯——"],
-        ["you","我是哪里人？这决定了我的天赋底子。","think"],
-      ],
-      choices: Object.keys(ORIGINS).map(k=>{
-        const o=ORIGINS[k];
-        return {t:`${o.emoji} ${o.name}`, sub:`${o.tag}　·　家乡：${o.city}`,
-          cls: k==="hebei"?"gold":"", f:()=>this.pickOrigin(k)};
-      })
-    });
+    document.getElementById("app").classList.add("landing");
+    const cards=Object.keys(ORIGINS).map(k=>{
+      const o=ORIGINS[k];
+      return `<div class="ocard" onclick="Game.pickOrigin('${k}')">
+        <div class="oemoji">${o.emoji}</div>
+        <div><div class="oname">${o.name}</div><div class="otag">${o.tag}</div><div class="ocity">家乡 · ${o.city}</div></div>
+      </div>`;
+    }).join("");
+    document.getElementById("screen").innerHTML=
+      `<div class="hero">
+        <div class="logo">沧 州 风 云</div>
+        <div class="tag">十八岁的盛夏，高考交出第一张人生答卷。<br>从大学到职场，从初恋到三十五岁的命运岔口——<br>这一生，你来过。</div>
+        <div class="pick-hint">▾ 先选个出身，天赋随籍贯而定 ▾</div>
+      </div>
+      <div class="origins">${cards}</div>`;
   },
   pickOrigin(key){
     this.applyOrigin(key);
     const o=ORIGINS[key];
+    document.getElementById("app").classList.remove("landing");
     this.render();
-    D({loc:"角色创建", art:"cangzhou",
-      lines:[
-        ["env",`${o.emoji} 你选择了【${o.name}】——${o.intro}`],
-        ["mom",`咱是${o.city}人，家里就指望你了，争口气！`,{big:true}],
-        ["you", key==="hebei"?"沧州少年，这就开整！":`${o.city}的种，照样能闯出名堂！`,"think"],
-      ],
-      choices:[{t:"🎬 开启我的人生", cls:"gold", f:()=>this.sceneCangzhou()}]});
+    this.transition({emoji:o.emoji, title:o.name, sub:`家乡 · ${o.city} · 命运启程`, color:"#ffcc4d"},
+      ()=>this.sceneCangzhou());
   },
   applyOrigin(key){
     const s=this.s; const o=ORIGINS[key]||ORIGINS.hebei;
@@ -439,6 +475,30 @@ const Game = {
   },
   // 精力上限（山西更高，可分配更多）
   energyCap(){ return 100 + (this.s.energyBonus||0); },
+
+  /* ---------- 道具店（开学分配界面可进入；买完返回原处） ---------- */
+  itemShop(back){
+    const s=this.s; const E=this.econ(); const cur=s.cur;
+    const rows=Object.keys(ITEMS).map(k=>{
+      const it=ITEMS[k]; const owned=!!s[it.flag];
+      const price=it.price[cur]||it.price.CNY;
+      if(owned) return {t:`${it.emoji} ${it.name}　✓ 已拥有`, sub:it.desc, f:()=>this.itemShop(back)};
+      return {t:`${it.emoji} 买${it.name}　${E.sym}${fmt(price)}`, sub:it.desc, cls:"gold", f:()=>{
+        if(s.money<price){ this.toast("钱不够 💸"); return; }
+        s.money-=price; s[it.flag]=true;
+        if(k==="boots"){ const g=this.addStat("wuli", rand(3,7)); if(g>0) this.toast(`马丁靴加身，气场 +${g}武力`); }
+        this.render(); this.toast(`入手·${it.name} ${it.emoji}`);
+        this.itemShop(back);
+      }};
+    });
+    rows.push({t:"↩ 返回", f:back});
+    D({loc:"🛍 行头 · 道具店", art:"study",
+      lines:[
+        ["env",`手头 ${E.sym}${fmt(s.money)}。置办行头，关键时刻有大用——防身、撑场面、攻略女神。`],
+        ["you","钱要花在刀刃上。","think"],
+      ],
+      choices:rows});
+  },
 
   /* ---------- 存读档 ---------- */
   save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify({s:this.s, scene:this._scene})); this.toast("已存档 ✓"); }catch(e){ this.toast("存档失败"); } },
@@ -463,8 +523,9 @@ const Game = {
       `🏮 沧州风云 <span class="badge">🎓 毕业证 ${s.diplomas.length}</span>`+
       `<span class="badge">🪪 学生证 ${s.studentIds.length}</span>`+
       (s.hasBaton?`<span class="badge">🥢 甩棍</span>`:``)+
-      (s.hasBoots?`<span class="badge">🥾 切尔西靴</span>`:``)+
-      (s.hasHair?`<span class="badge">💇 大背头</span>`:``);
+      (s.hasBoots?`<span class="badge">🥾 马丁靴</span>`:``)+
+      (s.hasHair?`<span class="badge">💇 大背头</span>`:``)+
+      (s.hasCar?`<span class="badge">🚗 汽车</span>`:``);
 
     const bar=(v,max,c)=>`<div class="bar"><i style="width:${Math.max(0,Math.min(100,v/max*100))}%;background:${c}"></i></div>`;
     // [标签, 显示值, 进度条, 数值键(用于变化箭头), 背景色类]
@@ -913,6 +974,40 @@ const Game = {
       ],
       choices:[{t:"📚 开始这学期", cls:"gold", f:()=>this.studyYear()}]});
   },
+  // 美女：亲密度达标后撒娇要 €5000 买衣服，付了即"攻略成功"
+  meinuDressEvent(next){
+    const s=this.s; const E=this.econ();
+    const cost = s.cur==="EUR"?5000:(s.cur==="GBP"?4500:10000);
+    D({loc:"💃 美女女友 · 撒娇", art:"study", tw:true,
+      lines:[
+        ["gf",`亲爱的～商场新款太好看啦，${E.sym}${fmt(cost)}帮我买下来嘛，我穿给你看～`,{big:true}],
+        ["you",`${E.sym}${fmt(cost)}买身衣服……舍不得孩子套不着狼？`,"think"],
+      ],
+      choices:[
+        {t:`💳 刷卡买下（${E.sym}${fmt(cost)}）`, sub:"攻略成功·关系稳如磐石", cls:"gold", f:()=>{
+          s.flags.meinuDress=true;
+          s.money=Math.max(0, s.money-cost);
+          s.gfFavor=100; s.gfWarned=false; s.flags.meinuWon=true; this.render();
+          D({loc:"💃 攻略成功！", art:"study", tw:true,
+            lines:[
+              ["gf","你最好了！这辈子我跟定你啦～",{big:true}],
+              ["env","💖 攻略成功！女友好感拉满，关系稳如磐石。"],
+              ["you","钱没了，但值了。","think"],
+            ],
+            choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+        }},
+        {t:"🙅 太贵了，婉拒", sub:"好感大跌·有分手风险", cls:"danger", f:()=>{
+          s.flags.meinuDress=true; s.gfFavor=clamp(s.gfFavor-30,0,100); s.gfWarned=true; this.render();
+          D({loc:"💃 她不高兴了", art:"study", tw:true,
+            lines:[
+              ["gf","……连这点都舍不得？算了。",{big:true}],
+              ["env",`💔 女友好感 -30（现 ${s.gfFavor}）。再不上心，下次就要分手了。`],
+              ["you","钱包和爱情，真难两全。","think"],
+            ],
+            choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+        }}
+      ]});
+  },
 
   studyYear(){
     const s=this.s;
@@ -1007,6 +1102,7 @@ const Game = {
           if(proj.endBal<0){ return this.cantAfford(credits, yrLabel, makeup); }
           this.resolveYear(credits, alloc, ms, yrLabel, makeup);
         }},
+        {t:"🛍 进道具店（置办行头）", sub:"甩棍/马丁靴/大背头/汽车", f:()=>this.itemShop(()=>this.allocateYear(credits, yrLabel, makeup))},
         {t:"🚪 实在撑不住，退学", sub:"放弃学业另谋出路", cls:"danger", f:()=>{
           D({loc:"抉择",
             lines:[["you","撑不下去了……真要退学吗？","think"]],
@@ -1163,9 +1259,9 @@ const Game = {
     if(alloc.study>0){ const xg=this.addStat("xuexi", Math.round(alloc.study*0.05*(s.xuexiMult||1))); if(xg>0) logs.push(`🧠 勤学苦练，学习力 +${xg}`); }
     // ---- 社交：兄弟义气（边际递减）----
     if(alloc.friend>0||money.friend>0){
-      const raw=Math.round((alloc.friend*0.25 + (money.friend/E.socUnit)*0.6 + rand(0,4)) * (s.broMult||1));
+      const raw=Math.round((alloc.friend*0.25 + (money.friend/E.socUnit)*0.6 + rand(0,4)) * (s.broMult||1) * (s.hasBoots?1.2:1));
       const g=this.addStat("bro", raw);
-      if(g>0) logs.push(`🍻 兄弟义气 +${g}`);
+      if(g>0) logs.push(`🍻 兄弟义气 +${g}${s.hasBoots?"（马丁靴气场加成）":""}`);
     }
     // ---- 把妹 / 女友：情商训练（单身）+ 按类型维系关系 ----
     this._gfEvent=null;
@@ -1173,7 +1269,7 @@ const Game = {
     const flirtMoney = money.flirt/E.socUnit; // 归一化
     if(!s.hasGf){
       // 单身时把妹只历练情商（脱单改由情商达标后主动选择，见 gfUnlock）
-      if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round((alloc.flirt*0.22 + flirtMoney*0.5 + rand(0,3))*(s.eqMult||1))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}`); }
+      if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round((alloc.flirt*0.22 + flirtMoney*0.5 + rand(0,3))*(s.eqMult||1)*(s.hasHair?1.25:1))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}${s.hasHair?"（大背头加成）":""}`); }
     } else {
       const t=s.gfType;
       // 维系满意度：不同类型侧重不同
@@ -1182,6 +1278,8 @@ const Game = {
       else if(t==="fujie") sat = flirtTime*1.0 + flirtMoney*0.3 - 16; // 富姐吃时间
       else if(t==="net")   sat = flirtMoney*1.2 + flirtTime*0.5 - 12; // 网恋靠"转账"
       else                 sat = flirtTime*0.55 + flirtMoney*0.8 - 14; // 学霸均衡
+      if(s.hasHair) sat+=3;   // 大背头：撑场面
+      if(s.hasCar)  sat+=6;   // 汽车：接送有面子
       if(sat>=0){ const up=this.addStat("gfFavor", Math.round(2+sat*0.4)); logs.push(`💞 用心经营，女友好感 +${up}`); }
       else { const down=Math.round((-sat)*0.7+rand(1,3)); s.gfFavor=clamp(s.gfFavor-down,0,100); logs.push(`💔 维系投入不足，女友好感 -${down}`); }
 
@@ -1209,6 +1307,16 @@ const Game = {
           s.hasGf=false; s.gfType=null; this._gfEvent="netbust";
         }
       }
+
+      // ---- 汽车：帮女神搬家、带去 Kaufland 买菜 → 好感稳涨（油费另计） ----
+      if(s.hasGf && s.hasCar){
+        const up=this.addStat("gfFavor", rand(4,8));
+        const fuel=Math.round(E.live*0.4); s.money=Math.max(0,s.money-fuel);
+        logs.push(`🚗 开车帮她搬家、去 Kaufland 买菜，女友好感 +${up}（油费 -${E.sym}${fmt(fuel)}）`);
+      }
+
+      // ---- 美女：亲密度达标 → 索要 €5000 买衣服（攻略事件，仅一次） ----
+      if(s.hasGf && s.gfType==="meinu" && s.gfFavor>=80 && !s.flags.meinuDress){ this._pendingMeinuDress=true; }
 
       // ---- 吵架预警在先、分手在后 ----
       if(s.hasGf){
@@ -1275,7 +1383,9 @@ const Game = {
     const reveal = isCn
       ? (done)=>this.spinGpa(credits, alloc, yrLabel, logs, done, {gpaBaseCn})
       : (done)=>this.revealCoursesDE(courseData, yrLabel, logs, done);
-    const after = makeup ? ()=>this.makeupDone(yrLabel) : ()=>this.yearSummary(yrLabel, logs);
+    let after = makeup ? ()=>this.makeupDone(yrLabel) : ()=>this.yearSummary(yrLabel, logs);
+    // 美女女友"买衣服"攻略事件插在结算前
+    if(this._pendingMeinuDress){ this._pendingMeinuDress=false; const nx=after; after=()=>this.meinuDressEvent(nx); }
     if(s.health<=12 && Math.random()<0.5) return reveal(()=>this.endingDeath());
     if(s.health<=0) return this.endingDeath();
     reveal(after);
