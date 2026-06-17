@@ -336,12 +336,19 @@ const ORIGINS = {
              intro:"山东大汉，重情重义，称兄道弟一拍即合。"},
   shanxi:   {name:"山西人", city:"太原", emoji:"⛏️", tag:"体能强·精力上限更高",
              intro:"山西后生，身子骨硬实，扛得住熬，时间精力比旁人多。"},
-  anhui:    {name:"安徽人", city:"合肥", emoji:"📚", tag:"智力成长快·擅长考试",
-             intro:"安徽学子，脑子活、会读书，考场上如鱼得水。"},
+  anhui:    {name:"合肥人", city:"合肥", emoji:"📚", tag:"智力成长快·擅长考试",
+             intro:"合肥学子，脑子活、会读书，考场上如鱼得水。"},
   wenzhou:  {name:"温州人", city:"温州", emoji:"💰", tag:"初始资金更多",
              intro:"温州人，天生会做生意，家底比同龄人厚实。"},
 };
 function home(){ return (Game.s && Game.s.home) || "沧州"; }
+
+/* 随机室友（开局指定一位具体人物，作为初始联系人；替换泛称「室友老铁」） */
+const ROOMMATES = [
+  {name:"大壮", face:"🧔"}, {name:"阿坤", face:"🧑‍🦱"}, {name:"眼镜哥", face:"🤓"},
+  {name:"老六", face:"😏"}, {name:"胖虎", face:"🐯"}, {name:"二师兄", face:"🐷"},
+  {name:"川哥", face:"🧑‍🎤"}, {name:"东北虎", face:"🐅"},
+];
 
 /* 道具系统：价格按当前币种取值 */
 const ITEMS = {
@@ -386,6 +393,7 @@ const Game = {
       loan:0, internRaiseMult:1, hospWarned:false,
       hasCardCounter:false, sharkAge:0,
       broLoan:0, broLoanFrom:null,
+      lastAlloc:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
     };
   },
 
@@ -459,7 +467,7 @@ const Game = {
       const o=ORIGINS[k];
       return `<div class="ocard" onclick="Game.pickOrigin('${k}')">
         <div class="oemoji">${o.emoji}</div>
-        <div><div class="oname">${o.name}</div><div class="otag">${o.tag}</div><div class="ocity">家乡 · ${o.city}</div></div>
+        <div><div class="oname">${o.name}</div><div class="otag">${o.tag}</div></div>
       </div>`;
     }).join("");
     document.getElementById("screen").innerHTML=
@@ -468,7 +476,8 @@ const Game = {
         <div class="tag">十八岁的盛夏，高考交出第一张人生答卷。<br>从大学到职场，从初恋到三十五岁的命运岔口——<br>这一生，你来过。</div>
         <div class="pick-hint">▾ 先选个出身，天赋随籍贯而定 ▾</div>
       </div>
-      <div class="origins">${cards}</div>`;
+      <div class="origins">${cards}</div>
+      <div class="tag" style="text-align:center;margin:6px 0 26px;font-size:11.5px;opacity:.7">游戏开发：柏林可达鸭游戏工作室 🦆</div>`;
   },
   pickOrigin(key){
     this.applyOrigin(key);
@@ -478,9 +487,14 @@ const Game = {
     this.transition({emoji:o.emoji, title:o.name, sub:`家乡 · ${o.city} · 命运启程`, color:"#ffcc4d"},
       ()=>this.sceneCangzhou());
   },
+  // 联系人名称/头像（兼容随机室友这种非 PEOPLE 注册的联系人）
+  friendInfo(id){ if(id==="roommate" && this.s.roommate) return {nm:this.s.roommate.name, face:this.s.roommate.face, get:{}};
+    const p=PEOPLE[id]; const face=(CHARS[id]&&CHARS[id].face)||"🧑"; return p?{nm:p.nm, face, get:p.get}:{nm:id, face, get:{}}; },
   applyOrigin(key){
     const s=this.s; const o=ORIGINS[key]||ORIGINS.hebei;
     s.origin=key; s.home=o.city;
+    // 随机指定一位室友，作为初始联系人
+    if(!s.roommate){ s.roommate=ROOMMATES[rand(0,ROOMMATES.length-1)]; s.friends=s.friends||{}; s.friends.roommate={fav:rand(45,65)}; }
     // 先归位默认，再按籍贯加成
     s.eqMult=1; s.broMult=1; s.xuexiMult=1; s.healthDrainMult=1; s.energyBonus=0; s.examBonus=0; s.gaokaoExam=0;
     if(key==="hebei"){ s.eq=35; s.eqMult=1.6; }                 // 河北：情商/把妹
@@ -491,6 +505,8 @@ const Game = {
   },
   // 精力上限（山西更高，可分配更多）
   energyCap(){ return 100 + (this.s.energyBonus||0); },
+  // 年龄越大健康损耗越高（24岁起，每3岁多掉约2点；山西人体质好减半）
+  ageHealthDrain(){ const a=this.s.age||18; return Math.max(0, Math.round(Math.max(0,a-24)*0.6*(this.s.healthDrainMult||1))); },
 
   /* ---------- 状态判定（单一事实来源） ---------- */
   // 感情状态：单身 / 有女友
@@ -964,10 +980,32 @@ const Game = {
     const s=this.s; const lt=s.lineType;
     if(this.germanStudy()){
       s.semFlags={}; s.semActivities=[];
+      // 加菲猫专属：结识后下学期触发「被动搬家」
+      if(s.flags.garfMovePending && !s.garfMoveDone) return this.garfMoveEvent();
       if(lt==="stuttgart" && !s.flags.stuttBatonOffered){ s.flags.stuttBatonOffered=true; return this.offerBaton(); }
       return this.semesterStart();
     }
     this.studyYear();
+  },
+  // 加菲猫：被动搬家（损失 1000 欧搬家费），可加入「反猫护卫队」结识勇哥
+  garfMoveEvent(){
+    const s=this.s; const E=this.econ(); const fee=s.cur==="EUR"?1000:(s.cur==="GBP"?900:8000);
+    s.garfMoveDone=true; s.flags.garfMovePending=false;
+    s.money=Math.max(0,s.money-fee); this.render();
+    const joinable = !s.friends.yong;
+    const choices=[];
+    if(joinable) choices.push({t:"🛡️ 加入「反猫护卫队」", sub:"结识勇哥，今后不再被加菲猫拖累", cls:"gold", f:()=>{
+      const p=PEOPLE.yong; s.friends.yong={fav:rand(40,55)}; s.flags.warnedGarf=true; for(const k in p.get){ this.addStat(k,p.get[k]); } this.render();
+      this.eventSplash({emoji:"💪", title:"勇哥 加入联系人", sub:"🛡️ 反猫护卫队", color:"#ff7a3c", hold:1800}, ()=>{
+        D({loc:"🛡️ 反猫护卫队", tw:true, lines:[["yong","早跟你说离加菲猫远点！加入护卫队，哥罩着你。",{big:true}],["env",`🤝 结识【勇哥】！（${gainText(p.get)}）从此加菲猫的精神内耗对你无效。`]], choices:[{t:"📚 进入学期", cls:"gold", f:()=>this.semesterStart()}]});
+      });
+    }});
+    choices.push({t:"😮‍💨 自认倒霉，继续", f:()=>this.semesterStart()});
+    this.eventSplash({emoji:"📦", title:"被动搬家", sub:`加菲猫连累·搬家费 ${E.sym}${fmt(fee)}`, color:"#ffcc4d"}, ()=>{
+      D({loc:"📦 被动搬家", tw:true,
+        lines:[["garf","哥们儿房东要收房，咱一起搬呗，搭个伴！",{big:true}],["env",`🏠 被加菲猫拉着一起搬家，白白花了 ${E.sym}${fmt(fee)} 搬家费。`],["you","跟他混迟早被拖累……要不要找人罩着？","think"]],
+        choices});
+    });
   },
   // 斯图加特开学前：买甩棍防阿鲁巴（已有则只是提示）
   offerBaton(){
@@ -1114,15 +1152,15 @@ const Game = {
   studyYear(){
     const s=this.s;
     const resuming=this._resuming; this._resuming=false; // 续档回到本学期：不重复推进学期数
-    // 情商达标且单身 → 每学期开学询问是否找对象（选「继续单身」则本学期跳过）
-    if(!resuming && !s.hasGf && (s.eq||0)>=45 && s.gfSkipSem!==s.yearInSchool+1){
+    // 情商达标且单身 → 每学期开学询问是否找对象（德国读书期改用「尝试脱单」主动玩法，这里不再弹）
+    if(!resuming && !this.germanStudy() && !s.hasGf && (s.eq||0)>=45 && s.gfSkipSem!==s.yearInSchool+1){
       return this.gfUnlock();
     }
     this._scene="studyYear";
     if(!resuming) s.yearInSchool++;
-    // 选课与精力规划合并到同一界面（allocateYear 内据剩余学分自适应默认值）
-    this._chosenCredits=null;
-    this.allocateYear(null, this.yrLabelFor(Math.max(1,s.yearInSchool)), false);
+    // 先预算规划（投资/道具/借钱/社交开支），再选课与时间
+    this._chosenCredits=null; this._budgetMoney={friend:0,flirt:0,repay:0};
+    this.budgetPlan(null, this.yrLabelFor(Math.max(1,s.yearInSchool)), false);
   },
   // 读取合并界面上的「本学期学分」（数字输入优先，可超出滑块范围；补课等固定场景回退到入参）
   _readCredits(fallback){
@@ -1168,30 +1206,19 @@ const Game = {
     if(!careerOK) cats.push({k:"work", nm:"打工", sub:"稳定低收入·事业度"}); // 实习解锁后取消打工
     cats.push({k:"friend", nm:"交友", sub:"兄弟义气"},
       s.hasGf ? {k:"flirt", nm:"维系女友", sub:"投入不足→好感降、闹分手"} : {k:"flirt", nm:"把妹", sub:"情商·脱单(看情商)"});
-    const init={study:40,intern:0,work:0,friend:20,flirt:0};
+    const la = s.lastAlloc || {study:40,intern:0,work:0,friend:20,flirt:0};
+    const init={study:la.study||0,intern:la.intern||0,work:la.work||0,friend:la.friend||0,flirt:la.flirt||0};
     const E=this.econ();
-    const moneyMax=Math.min(s.money, E.socMax);
     this._allocCtx={credits, yrLabel, E, careerOK, makeup:!!makeup};
-    const debt=this.totalDebt();
-    const repayMax=Math.max(0, Math.min(s.money, debt));
-    const debtDesc=this.debtList().map(d=>`${d.nm} ${E.sym}${fmt(d.amt)}(${d.rate})`).join("、");
-    const loanRow = debt>0 ? `<div class="row"><div class="nm">还债<small>欠 ${E.sym}${fmt(debt)}：${debtDesc} · 按利息高→低还</small></div>
-        <input type="range" id="repayRange" min="0" max="${repayMax}" step="1" value="0" oninput="Game._repayRangeSync()">
-        <input type="number" id="repayNum" value="0" min="0" max="${repayMax}" inputmode="numeric"
-          style="flex:0 0 70px;background:#0a0d12;border:1px solid var(--line);border-radius:6px;color:var(--gold);font-weight:700;text-align:center;padding:4px 2px" oninput="Game._repayNumSync()">
-        </div>
-        <div class="row" style="padding:0 0 4px"><div class="nm" style="flex:0 0 96px"></div>
-          <span class="hint" style="margin:0;text-align:left">还款滑块可拖到最大值，或直接输入金额　<a style="color:var(--gold);cursor:pointer" onclick="Game._repaySet(${repayMax})">［全部还清 ${E.sym}${fmt(repayMax)}］</a></span></div>` : "";
+    const actE=this.activityEnergy()+this.courtEnergy();
 
     D({
-      loc:`${s.school} · ${yrLabel} · 选课 + 规划`,
+      loc:`${s.school} · ${yrLabel} · 选课 + 时间`,
       lines:[
         makeup
           ? ["prof2",`补课学期：强制补修 ${credits} 个挂科学分。通过的课程会从"已挂学分"里移除！正常分配精力即可。`,{big:true}]
-          : ["bro",`先选学分，再分精力——都在这一屏。精力基准 ${this.energyCap()}${s.energyBonus?`（${ORIGINS[s.origin].name}体能好，+${s.energyBonus}）`:""}。超过则睡眠不足随机掉健康；没分完当休息、按余量随机回血。`],
-        ["bro", careerOK
-          ? `事业度≥20，实习开启赚钱模式！每点≈${cursym()}${fmt(this.internMonthlyPerPoint())}/月。\n🏠 本学期生活费 ${E.sym}${fmt(E.live)}/月。`
-          : `事业度<20，实习只能无偿攒经验（涨事业度）。\n🏠 本学期生活费 ${E.sym}${fmt(E.live)}/月。`],
+          : ["bro",`选学分、分时间。精力基准 ${this.energyCap()}${s.energyBonus?`（${ORIGINS[s.origin].name}体能好，+${s.energyBonus}）`:""}。超过则睡眠不足随机掉健康；没分完当休息、按余量随机回血。${actE?`\n⏱ 兄弟活动/脱单已占用 ${actE} 点时间（强制扣除）。`:""}`],
+        ["bro", `💰 预算已规划（社交开支 ${cursym()}${fmt((this._budgetMoney&&((this._budgetMoney.friend||0)+(this._budgetMoney.flirt||0)))||0)}、还债 ${cursym()}${fmt((this._budgetMoney&&this._budgetMoney.repay)||0)}）。\n🏠 本学期基础生活成本 ${E.sym}${fmt(E.live)}/月。`],
       ],
       extra:`${creditBlock}<div class="alloc" id="alloc">
         ${cats.map(c=>`<div class="row">
@@ -1201,34 +1228,17 @@ const Game = {
         </div>`).join("")}
         <div class="pool">已用精力 <b id="poolUsed">0</b> / ${this.energyCap()}　<span id="sleepNote"></span></div>
       </div>
-      <div class="alloc">
-        <div style="font-size:13px;margin-bottom:4px">💰 投入金钱</div>
-        <div class="row"><div class="nm">交友花钱</div>
-          <input type="range" min="0" max="${moneyMax}" step="${E.socStep}" value="0" data-m="friend" oninput="Game._moneySync()">
-          <div class="amt" id="m_friend">0</div></div>
-        <div class="row"><div class="nm">把妹花钱</div>
-          <input type="range" min="0" max="${moneyMax}" step="${E.socStep}" value="0" data-m="flirt" oninput="Game._moneySync()">
-          <div class="amt" id="m_flirt">0</div></div>
-        ${loanRow}
-        <div class="pool">社交花费 <b id="moneySpend">${E.sym}0</b>　/　可用 ${E.sym}${fmt(s.money)}</div>
-      </div>
       <div class="budget" id="budget"></div>`,
       choices:[
         {t:"🎲 确定，开始这一学期", cls:"gold", id:"goBtn", f:()=>{
           const cr=this._readCredits(credits);
-          const alloc=this._readAlloc(); const ms=this._readMoney();
+          const alloc=this._readAlloc(); this.s.lastAlloc=alloc;
+          const ms=this._budgetMoney||{friend:0,flirt:0,repay:0};
           const proj=this._projectBudget(alloc, ms);
-          if(proj.endBal<0){ this._chosenCredits=pick?cr:null; return this.cantAfford(cr, yrLabel, makeup); }
+          if(proj.endBal<0){ this._chosenCredits=pick?cr:null; this.toast("预计资金不足，请回预算规划调整 💸"); return this.budgetPlan(makeup?credits:null, yrLabel, makeup); }
           this.resolveYear(cr, alloc, ms, yrLabel, makeup);
         }},
-        {t:"🛍 进道具店（置办行头）", sub:"马丁靴/大背头·甩棍与汽车仅斯图加特", f:()=>{
-          const cr=this._readCredits(credits); this._chosenCredits=pick?cr:null;
-          this.itemShop(()=>this.allocateYear(makeup?credits:null, yrLabel, makeup));
-        }},
-        {t:"🏦 借钱周转（贷款 / 借钱）", sub:"助学贷款·兄弟借钱·高利贷·搏一搏", f:()=>{
-          const cr=this._readCredits(credits); this._chosenCredits=pick?cr:null;
-          this.cantAfford(cr, yrLabel, makeup);
-        }},
+        {t:"↩ 返回预算规划", f:()=>{ const cr=this._readCredits(credits); this._chosenCredits=pick?cr:null; this.s.lastAlloc=this._readAlloc(); this.budgetPlan(makeup?credits:null, yrLabel, makeup); }},
         {t:"🚪 实在撑不住，退学", sub:"放弃学业另谋出路", cls:"danger", f:()=>{
           const cr=this._readCredits(credits); this._chosenCredits=pick?cr:null;
           D({loc:"抉择",
@@ -1238,7 +1248,65 @@ const Game = {
         }}
       ]
     });
-    this._allocSync(); this._moneySync();
+    this._allocSync();
+  },
+
+  /* 预算规划：投资 / 道具 / 借钱 / 社交开支 + 收支平衡（在“开始上课”之前） */
+  budgetPlan(credits, yrLabel, makeup){
+    const s=this.s; const E=this.econ();
+    this._allocCtx={credits, yrLabel, E, careerOK:s.career>=20, makeup:!!makeup};
+    const moneyMax=Math.min(s.money, E.socMax);
+    const bm=this._budgetMoney||(this._budgetMoney={friend:0,flirt:0,repay:0});
+    const debt=this.totalDebt();
+    const repayMax=Math.max(0, Math.min(s.money, debt));
+    bm.repay=Math.min(bm.repay||0, repayMax);
+    const debtDesc=this.debtList().map(d=>`${d.nm} ${E.sym}${fmt(d.amt)}(${d.rate})`).join("、");
+    const loanRow = debt>0 ? `<div class="row"><div class="nm">还债<small>欠 ${E.sym}${fmt(debt)}：${debtDesc} · 按利息高→低还</small></div>
+        <input type="range" id="repayRange" min="0" max="${repayMax}" step="1" value="${bm.repay}" oninput="Game._repayRangeSync()">
+        <input type="number" id="repayNum" value="${bm.repay}" min="0" max="${repayMax}" inputmode="numeric"
+          style="flex:0 0 70px;background:#0a0d12;border:1px solid var(--line);border-radius:6px;color:var(--gold);font-weight:700;text-align:center;padding:4px 2px" oninput="Game._repayNumSync()">
+        </div>
+        <div class="row" style="padding:0 0 4px"><div class="nm" style="flex:0 0 96px"></div>
+          <span class="hint" style="margin:0;text-align:left">滑块可拖到最大值或直接输入　<a style="color:var(--gold);cursor:pointer" onclick="Game._repaySet(${repayMax})">［全部还清 ${E.sym}${fmt(repayMax)}］</a></span></div>` : "";
+    const choices=[
+      {t:"📚 下一步：选课与时间规划", cls:"gold", f:()=>{ this._budgetMoney=this._readMoney(); this.allocateYear(credits, yrLabel, makeup); }},
+    ];
+    if(s.canStock) choices.push({t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财", sub: s.pendingStock?"本年度已投，等结算":"每年一次·本金锁定到年底", f:()=>{ this._budgetMoney=this._readMoney(); this.stockGame(()=>this.budgetPlan(credits,yrLabel,makeup)); }});
+    choices.push({t:"🛍 道具购买", sub:"马丁靴/大背头·甩棍与汽车仅斯图加特", f:()=>{ this._budgetMoney=this._readMoney(); this.itemShop(()=>this.budgetPlan(credits,yrLabel,makeup)); }});
+    choices.push({t:"🏦 借钱周转（贷款 / 借钱）", sub:"助学贷款·兄弟借钱·高利贷·搏一搏", f:()=>{ this._budgetMoney=this._readMoney(); this.cantAfford(credits, yrLabel, makeup); }});
+    D({
+      loc:`${s.school} · ${yrLabel} · 💰 预算规划`,
+      lines:[
+        ["bro",`开学前先把钱袋子盘一盘：社交开支、还债、要不要投资/置办行头/借钱周转。\n🏠 本学期基础生活成本 ${E.sym}${fmt(E.live)}/月。`,{big:true}],
+      ],
+      extra:`<div class="alloc">
+        <div style="font-size:13px;margin-bottom:4px">💰 社交开支预算</div>
+        <div class="row"><div class="nm">交友花钱</div>
+          <input type="range" min="0" max="${moneyMax}" step="${E.socStep}" value="${bm.friend||0}" data-m="friend" oninput="Game._bpSync()">
+          <div class="amt" id="m_friend">${cursym()+fmt(bm.friend||0)}</div></div>
+        <div class="row"><div class="nm">${s.hasGf?"维系女友":"把妹"}花钱</div>
+          <input type="range" min="0" max="${moneyMax}" step="${E.socStep}" value="${bm.flirt||0}" data-m="flirt" oninput="Game._bpSync()">
+          <div class="amt" id="m_flirt">${cursym()+fmt(bm.flirt||0)}</div></div>
+        ${loanRow}
+        <div class="pool">社交花费 <b id="moneySpend">${cursym()+fmt((bm.friend||0)+(bm.flirt||0))}</b>　/　现金 ${E.sym}${fmt(s.money)}</div>
+      </div>
+      <div class="budget" id="budget"></div>`,
+      choices
+    });
+    this._bpSync();
+  },
+  // 预算规划界面的实时同步（收入按上学期的时间分配估算）
+  _bpSync(){
+    document.querySelectorAll('input[data-m]').forEach(i=>{ const el=document.getElementById("m_"+i.dataset.m); if(el) el.textContent=cursym()+fmt(+i.value); });
+    const m=this._readMoney();
+    const ms=document.getElementById("moneySpend"); if(ms) ms.textContent=cursym()+fmt((m.friend||0)+(m.flirt||0));
+    const el=document.getElementById("budget"); if(!el) return;
+    const la=this.s.lastAlloc||{study:40,intern:0,work:0,friend:20,flirt:0};
+    const p=this._projectBudget(la, m); const sym=cursym(); const bad=p.endBal<0;
+    el.innerHTML=
+      `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b><small>（按上学期时间分配估算：实习 ${sym}${fmt(p.internInc)} · 打工 ${sym}${fmt(p.workInc)}）</small></div>`+
+      `<div class="brow">📉 预计开支　<b style="color:var(--red)">-${sym}${fmt(p.expense)}</b><small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.repay?` · 还债 ${sym}${fmt(p.repay)}`:""}${p.activity?` · 兄弟局 ${sym}${fmt(p.activity)}`:""}）</small></div>`+
+      `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ⚠️ 偏紧，注意':' ✅'}</div>`;
   },
   _readAlloc(){ const a={study:0,intern:0,work:0,friend:0,flirt:0};
     document.querySelectorAll('#alloc input').forEach(i=>a[i.dataset.k]=+i.value); return a; },
@@ -1247,10 +1315,10 @@ const Game = {
     const rn=document.getElementById("repayNum");
     if(rn){ const cap=Math.max(0, Math.min(this.s.money, this.totalDebt())); m.repay=clamp(Math.round(+rn.value||0),0,cap); }
     return m; },
-  // 还债：滑块(步进1，可达最大值) ↔ 数字输入 双向同步
-  _repayRangeSync(){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(r&&n) n.value=r.value; this._budgetSync(); },
-  _repayNumSync(){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(r&&n){ const v=clamp(Math.round(+n.value||0),+n.min,+n.max); r.value=v; } this._budgetSync(); },
-  _repaySet(v){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(n) n.value=v; if(r) r.value=v; this._budgetSync(); },
+  // 还债：滑块(步进1，可达最大值) ↔ 数字输入 双向同步（在预算规划界面）
+  _repayRangeSync(){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(r&&n) n.value=r.value; this._bpSync(); },
+  _repayNumSync(){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(r&&n){ const v=clamp(Math.round(+n.value||0),+n.min,+n.max); r.value=v; } this._bpSync(); },
+  _repaySet(v){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(n) n.value=v; if(r) r.value=v; this._bpSync(); },
   _projectBudget(alloc, money){
     const s=this.s; const E=this._allocCtx.E;
     const workInc = alloc.work>0 ? Math.round(alloc.work*E.workRate + (E.workRand[0]+E.workRand[1])/2) : 0;
@@ -1258,7 +1326,7 @@ const Game = {
     const social = (money.friend||0)+(money.flirt||0);
     const repay = money.repay||0;
     const living = E.live*this.monthsPerTerm();
-    const activity = this.activityCost();
+    const activity = this.activityCost()+this.courtCost();
     const income = workInc + internInc;
     const expense = living + social + repay + activity;
     return {workInc, internInc, social, repay, living, activity, income, expense, endBal: s.money + income - expense};
@@ -1266,8 +1334,8 @@ const Game = {
   _allocSync(){
     let used=0;
     document.querySelectorAll('#alloc input').forEach(i=>{ used+=+i.value; document.getElementById("amt_"+i.dataset.k).textContent=i.value; });
-    const actE=this.activityEnergy(); const tot=used+actE;
-    document.getElementById("poolUsed").textContent = actE? `${used}+${actE}(兄弟局)=${tot}` : used;
+    const actE=this.activityEnergy()+this.courtEnergy(); const tot=used+actE;
+    document.getElementById("poolUsed").textContent = actE? `${used}+${actE}(活动/脱单)=${tot}` : used;
     const note=document.getElementById("sleepNote");
     const cap=this.energyCap();
     if(tot>cap) note.innerHTML=`<span style="color:var(--red)">超 ${tot-cap}%·睡眠不足⚠️</span>`;
@@ -1275,23 +1343,18 @@ const Game = {
     else note.innerHTML=`<span style="color:var(--gold)">刚好</span>`;
     this._budgetSync();
   },
-  _moneySync(){
-    document.querySelectorAll('input[data-m]').forEach(i=>{ document.getElementById("m_"+i.dataset.m).textContent=cursym()+fmt(+i.value); });
-    const m=this._readMoney();
-    document.getElementById("moneySpend").textContent=cursym()+fmt((m.friend||0)+(m.flirt||0));
-    this._budgetSync();
-  },
+  // 「开始上课」界面的预算只读展示：金钱用预算规划阶段已定的 _budgetMoney
   _budgetSync(){
     const el=document.getElementById("budget"); if(!el||!this._allocCtx) return;
-    const p=this._projectBudget(this._readAlloc(), this._readMoney());
-    const sym=cursym();
-    const bad=p.endBal<0;
+    const money=this._budgetMoney||{friend:0,flirt:0,repay:0};
+    const p=this._projectBudget(this._readAlloc(), money);
+    const sym=cursym(); const bad=p.endBal<0;
     el.innerHTML=
       `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b>`+
       `<small>（实习 ${sym}${fmt(p.internInc)} · 打工 ${sym}${fmt(p.workInc)}）</small></div>`+
       `<div class="brow">📉 预计开支　<b style="color:var(--red)">-${sym}${fmt(p.expense)}</b>`+
-      `<small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.activity?` · 兄弟局 ${sym}${fmt(p.activity)}`:""}${p.repay?` · 还贷 ${sym}${fmt(p.repay)}`:""}）</small></div>`+
-      `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ❌ 资金不足，无法开学':' ✅'}</div>`;
+      `<small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.activity?` · 活动 ${sym}${fmt(p.activity)}`:""}${p.repay?` · 还债 ${sym}${fmt(p.repay)}`:""}）</small></div>`+
+      `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ❌ 资金不足，回预算规划调整':' ✅'}</div>`;
   },
 
   /* 结算一个学年 */
@@ -1304,8 +1367,8 @@ const Game = {
     s.money-=moneySpent;
     // 还债：按利息高→低（高利贷30% → 助学贷款10% → 富姐0% → 兄弟0%）
     if(money.repay>0) this.applyRepay(money.repay);
-    // 兄弟局总费用（每周20€×周数×次数），开学一并扣
-    const actCost=this.activityCost(), actEnergy=this.activityEnergy();
+    // 兄弟局 + 脱单早餐 费用与时间，开学一并扣
+    const actCost=this.activityCost()+this.courtCost(), actEnergy=this.activityEnergy()+this.courtEnergy();
     if(actCost>0){ s.money=Math.max(0,s.money-actCost); }
     s.semActivities=[];
 
@@ -1401,8 +1464,23 @@ const Game = {
     const flirtTime = alloc.flirt;
     const flirtMoney = money.flirt/E.socUnit; // 归一化
     if(!s.hasGf){
-      // 单身时把妹只历练情商（脱单改由情商达标后主动选择，见 gfUnlock）
+      // 单身时把妹只历练情商
       if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round((alloc.flirt*0.22 + flirtMoney*0.5 + rand(0,3))*(s.eqMult||1)*(s.hasHair?1.25:1))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}${s.hasHair?"（大背头加成）":""}`); }
+      // ---- 主动脱单尝试结算（学期末按情商定成败，过低则被拉黑）----
+      if(s.courtPlan){
+        const cp=s.courtPlan; s.courtPlan=null; const eq=s.eq||0;
+        if(cp.mode==="net"){
+          const p=clamp(0.15+eq/140, 0.1, 0.8);
+          this._pendingCourt = Math.random()<p ? {success:true,type:"net"} : {success:false};
+        } else {
+          const base=clamp(0.15+eq/150+(cp.breakfast?0.15:0), 0.05, 0.9);
+          if(Math.random()<base) this._pendingCourt={success:true,type:cp.target};
+          else {
+            const blockP = eq<35 ? clamp(0.5-eq/100, 0.1, 0.5) : 0.06;
+            this._pendingCourt = Math.random()<blockP ? {blocked:true,target:cp.target} : {success:false};
+          }
+        }
+      }
     } else {
       const t=s.gfType;
       // 维系满意度：不同类型侧重不同
@@ -1518,6 +1596,9 @@ const Game = {
       const surplus=cap-used, heal=Math.round(surplus*(rand(10,35)/100));
       hpDelta+=heal; logs.push(`😴 余力 ${surplus}%，休整恢复，健康 +${heal}`);
     }
+    // ---- 年龄越大、身体越扛不住：随年龄递增的健康损耗 ----
+    const ageDrain=this.ageHealthDrain();
+    if(ageDrain>0){ hpDelta-=ageDrain; logs.push(`⏳ 年纪渐长（${s.age}岁），身体机能下滑，健康 -${ageDrain}`); }
     s.health=clamp(s.health+hpDelta,0,100);
 
     // ---- 随机事件：智齿发作 ----
@@ -1566,6 +1647,8 @@ const Game = {
     // 女友重大事件：分手 / 网恋蒸发 / 吵架预警 → 全屏动画（_gfEvent 由 yearSummary 负责复盘清空）
     if(this._gfEvent==="breakup"||this._gfEvent==="netbust"){ const ev=this._gfEvent; const nx=after; after=()=>this.eventSplash({emoji:"💔", title:"分手", sub:ev==="netbust"?"网恋对象人间蒸发":"感情走到尽头", color:"#ff5b5b"}, nx); }
     else if(this._gfEvent==="warn"){ const nx=after; after=()=>this.eventSplash({emoji:"⚠️", title:"吵架预警", sub:"女友亲密度告急", color:"#ffcc4d", hold:1600}, nx); }
+    // 脱单进度公布（全屏）
+    if(this._pendingCourt){ const info=this._pendingCourt; this._pendingCourt=null; const nx=after; after=()=>this.courtResultEvent(info, nx); }
     // 兄弟讨债剧情（全屏 + 还/拒选择）
     if(this._pendingBroDebt){ const info=this._pendingBroDebt; this._pendingBroDebt=null; const nx=after; after=()=>this.broDebtEvent(info, nx); }
     // 高利贷追债·被打住院剧情
@@ -1628,7 +1711,7 @@ const Game = {
 
   /* 兄弟讨债：还 / 拒（拒绝伤亲密度，过低则决裂） */
   broDebtEvent(info, next){
-    const s=this.s; const id=info.id; const fr=s.friends[id]; const nm=PEOPLE[id]?PEOPLE[id].nm:id;
+    const s=this.s; const id=info.id; const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
     const owe=s.broLoan||0;
     if(!fr || owe<=0) return next();
     this.eventSplash({emoji:"📞", title:"兄弟讨债", sub:`${nm} 开口要钱了`, color:"#ff7a3c"}, ()=>{
@@ -1652,7 +1735,7 @@ const Game = {
     });
   },
   cutBrotherFallout(id, next){
-    const s=this.s; const nm=PEOPLE[id]?PEOPLE[id].nm:id;
+    const s=this.s; const nm=this.friendInfo(id).nm;
     delete s.friends[id]; s.broLoan=0; s.broLoanFrom=null; s.bro=clamp(s.bro-rand(8,15),0,100); this.render();
     this.eventSplash({emoji:"✂️", title:"兄弟决裂", sub:`${nm} 与你割袍断义`, color:"#ff5b5b"}, ()=>{
       D({loc:"✂️ 兄弟决裂", tw:true,
@@ -1848,7 +1931,8 @@ const Game = {
     const s=this.s;
     s.yearInSchool++;
     const retake=Math.max(4, Math.min(80, s.creditsFailed));
-    this.allocateYear(retake, "补课学期", true);
+    this._budgetMoney={friend:0,flirt:0,repay:0};
+    this.budgetPlan(retake, "补课学期", true);
   },
   makeupDone(yrLabel){
     this._scene="studyYear";
@@ -1890,16 +1974,16 @@ const Game = {
           const amt=Math.min(room, Math.max(0, Math.round(+document.getElementById("loanAmt").value||0)));
           s.money+=amt; s.loan+=amt; this.render();
           this.toast(`已借入 ${E.sym}${fmt(amt)}（欠款 ${E.sym}${fmt(s.loan)}）`);
-          this.allocateYear(credits, yrLabel, makeup);
+          this.budgetPlan(credits, yrLabel, makeup);
         }},
-        {t:"↩ 不借，回去重新分配", f:()=>this.allocateYear(credits, yrLabel, makeup)}
+        {t:"↩ 不借，回去重新规划", f:()=>this.budgetPlan(credits, yrLabel, makeup)}
       ]});
   },
 
-  /* 本金不足：助学金 / 助学贷款 / 高利贷 / 搏一搏 */
+  /* 本金不足：助学贷款 / 兄弟借钱 / 高利贷 / 搏一搏 */
   cantAfford(credits, yrLabel, makeup){
     const s=this.s; const E=this.econ();
-    const back=()=>this.allocateYear(credits, yrLabel, makeup);
+    const back=()=>this.budgetPlan(credits, yrLabel, makeup);
     const choices=[];
     if(s.hasGf && s.gfType==="fujie"){
       const lend=Math.round(E.live*6);
@@ -1925,9 +2009,9 @@ const Game = {
     const s=this.s; const back=()=>this.cantAfford(credits, yrLabel, makeup);
     const ids=Object.keys(s.friends||{});
     if(!ids.length){ this.toast("你还没有兄弟可借"); return back(); }
-    const choices=ids.map(id=>{ const fr=s.friends[id]; const nm=PEOPLE[id]?PEOPLE[id].nm:id;
+    const choices=ids.map(id=>{ const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
       const succ=Math.round(clamp(0.25+(fr.fav||0)/130,0.1,0.95)*100);
-      return {t:`${CHARS[id]?CHARS[id].face:"🧑"} 找 ${nm} 借`, sub:`亲密度 ${fr.fav||0} · 成功率约 ${succ}%`, f:()=>this.borrowBrother(id, credits, yrLabel, makeup)};
+      return {t:`${this.friendInfo(id).face} 找 ${nm} 借`, sub:`亲密度 ${fr.fav||0} · 成功率约 ${succ}%`, f:()=>this.borrowBrother(id, credits, yrLabel, makeup)};
     });
     choices.push({t:"↩ 返回", f:back});
     D({loc:"🧑‍🤝‍🧑 向兄弟借钱",
@@ -1935,7 +2019,7 @@ const Game = {
       choices});
   },
   borrowBrother(id, credits, yrLabel, makeup){
-    const s=this.s; const E=this.econ(); const fr=s.friends[id]; const nm=PEOPLE[id]?PEOPLE[id].nm:id;
+    const s=this.s; const E=this.econ(); const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
     const max=Math.max(E.socStep, Math.round(E.live*8)); const def=Math.round(E.live*3);
     D({loc:`🧑‍🤝‍🧑 向 ${nm} 借钱`,
       lines:[[id,`借多少？咱兄弟一场，能帮就帮——不过日后我手头紧了，可得还我。`,{big:true}]],
@@ -1958,7 +2042,7 @@ const Game = {
             fr.fav=clamp((fr.fav||0)-rand(3,7),0,100); this.render();
             this.toast(`${nm} 借了你 ${E.sym}${fmt(amt)}（无息）`);
             D({loc:"🤝 借到了", lines:[[id,`拿去吧，兄弟！记得啊，我用钱的时候你得还。`,{big:true}],["env",`💴 借入 ${E.sym}${fmt(amt)}（共欠兄弟 ${E.sym}${fmt(s.broLoan)}）。亲密度略降。`]],
-              choices:[{t:"↩ 回去分配", cls:"gold", f:()=>this.allocateYear(makeup?credits:null, yrLabel, makeup)}]});
+              choices:[{t:"↩ 回去规划", cls:"gold", f:()=>this.budgetPlan(credits, yrLabel, makeup)}]});
           } else {
             fr.fav=clamp((fr.fav||0)-rand(2,5),0,100); this.render();
             D({loc:"🙅 被婉拒", lines:[[id,`不好意思啊兄弟，我最近也紧巴……少借点行不？`,{big:true}],["env","💸 借款失败，亲密度略降。"]],
@@ -1985,7 +2069,7 @@ const Game = {
           const amt=Math.min(cap, Math.max(0, Math.round(+document.getElementById("lsAmt").value||0)));
           s.money+=amt; s.shark=(s.shark||0)+amt; this.render();
           this.toast(`高利贷 +${E.sym}${fmt(amt)}（欠 ${E.sym}${fmt(s.shark)}）`);
-          this.allocateYear(credits, yrLabel, makeup);
+          this.budgetPlan(credits, yrLabel, makeup);
         }},
         {t:"↩ 算了", f:()=>this.cantAfford(credits, yrLabel, makeup)}
       ]});
@@ -2030,7 +2114,7 @@ const Game = {
         const win=Math.random()<winP;
         if(win){ const gain=Math.round(bet*(g.mult-1)); s.money+=gain; this.render();
           D({loc:`🎲 ${g.nm} · 赢了！`, tw:true, lines:[["env",`🎉 赢了！+${cursym()}${fmt(gain)}（本金 ${cursym()}${fmt(bet)} ×${g.mult}${hasCC?" · 记牌器加成":""}）`],["you","富贵险中求！","think"]],
-            choices:[{t:"↩ 回去分配", cls:"gold", f:()=>this.allocateYear(makeup?credits:null, yrLabel, makeup)},{t:"🎲 再赌一把", f:()=>this.gambleMenu(credits, yrLabel, makeup)}]});
+            choices:[{t:"↩ 回去规划", cls:"gold", f:()=>this.budgetPlan(credits, yrLabel, makeup)},{t:"🎲 再赌一把", f:()=>this.gambleMenu(credits, yrLabel, makeup)}]});
         } else { s.money=Math.max(0,s.money-bet); this.render();
           D({loc:`🎲 ${g.nm} · 输了`, tw:true, lines:[["env",`💸 输光本金 -${cursym()}${fmt(bet)}。`],["you","……下次一定。","think"]],
             choices:[{t:"↩ 回去想办法", cls:"gold", f:()=>this.cantAfford(credits, yrLabel, makeup)}]});
@@ -2202,11 +2286,14 @@ const Game = {
     D({loc:"硕士申请",
       lines:[
         ["prof2",`你本科均绩 ${gradeDesc}。两所学校等你挑——`],
-        ["prof2",`慕尼黑工大（TUM）：宽进严出但门槛不低，你这成绩约 ${Math.round(muProb*100)}% 命中，免学费；斯图加特（司徒）：100% 录取，但每学期 €1500 学费。`],
+        ["prof2",`慕尼黑工大（TUM）：宽进严出但门槛不低，你这成绩约 ${Math.round(muProb*100)}% 命中，免学费，但报名要先无条件交 €1000 申请费；斯图加特（司徒）：100% 录取，每学期 €1500 学费。`],
         ["you","稳一手，还是赌一把名校？","think"],
       ],
       choices:[
-        {t:"🦁 赌慕尼黑 TUM", sub:`成功率约 ${Math.round(muProb*100)}%`, cls:"gold", f:()=>{
+        {t:"🦁 赌慕尼黑 TUM（申请费 €1000）", sub:`成功率约 ${Math.round(muProb*100)}% · 申请费不退`, cls:"gold", f:()=>{
+          const fee=s.cur==="EUR"?1000:(s.cur==="GBP"?900:8000);
+          s.money=Math.max(0,s.money-fee); this.render();
+          this.toast(`已交 TUM 申请费 ${cursym()}${fmt(fee)}（不退）`);
           if(Math.random()<muProb){
             this.toast("🎉 TUM offer 到手！");
             this.enterMunich();
@@ -2334,29 +2421,97 @@ const Game = {
   },
 
   /* ===================== 学期初活动 ===================== */
-  // 本学期已选活动的总费用（每周20€×周数×次数，开学时扣）& 精力消耗
+  // 兄弟活动：每次活动 花钱(整学期 ${per}) + 5点时间(强制在时间界面扣除)
   activityCost(){ return (this.s.semActivities||[]).length * ACT_WEEKS * ACT_WEEKLY; },
-  activityEnergy(){ return (this.s.semActivities||[]).length * 12; },
+  activityEnergy(){ return (this.s.semActivities||[]).length * 5; },
+  // 脱单尝试占用的时间：网恋5、图书馆搭讪10
+  courtEnergy(){ const c=this.s.courtPlan; if(!c) return 0; return c.mode==="net"?5:10; },
+  // 脱单尝试的额外金钱（图书馆买早餐）
+  courtCost(){ const c=this.s.courtPlan; if(c && c.mode==="library" && c.breakfast) return Math.round(this.econ().live*0.3); return 0; },
   semesterStart(){
     this._scene="semesterStart";
     const s=this.s; const E=this.econ(); const f=s.semFlags||(s.semFlags={});
-    const per=ACT_WEEKS*ACT_WEEKLY;
     const picked=(s.semActivities||[]).length;
-    const lines=[["bro",`${this.yrLabelFor(s.yearInSchool+1)}开学前，搞点活动？兄弟局每周一次、每次 ${E.sym}${ACT_WEEKLY}，整学期 ${E.sym}${fmt(per)}，开学时一并扣，还要费精力。`,{big:true}]];
-    if(picked) lines.push(["env",`本学期已约：${s.semActivities.map(k=>k==="hot"?"火锅":"烧烤").join("、")}（开学扣 ${E.sym}${fmt(this.activityCost())}，耗精力 ${this.activityEnergy()}）`]);
+    const lines=[["bro",`${this.yrLabelFor(s.yearInSchool+1)}开学前，安排一下这学期：兄弟活动、脱单、人脉，再去预算规划与上课。`,{big:true}]];
+    if(picked) lines.push(["env",`本学期已约：${s.semActivities.map(k=>k==="hot"?"火锅":"烧烤").join("、")}（开学扣 ${E.sym}${fmt(this.activityCost())}，强制占用时间 ${this.activityEnergy()}）`]);
+    if(s.courtPlan) lines.push(["env",`💘 脱单计划：${this._courtPlanDesc()}（强制占用时间 ${this.courtEnergy()}）`]);
     const choices=[];
     // 慕尼黑：女友的汉堡毕业典礼（保留原专属事件）
     if(s.lineType==="munich" && s.hasGf && !s.flags.hamburgDone)
       choices.push({t:"🚄 去汉堡参加女友毕业典礼", sub:"专属事件 · 消耗金钱", f:()=>this.hamburgEvent()});
-    if(!f.huoguo)  choices.push({t:`🍲 兄弟火锅（${E.sym}${fmt(per)}/学期）`, sub:"兄弟义气↑ · 可能结识猛人", f:()=>this.doActivity("hot")});
-    if(!f.shaokao) choices.push({t:`🍢 兄弟烧烤（${E.sym}${fmt(per)}/学期）`, sub:"兄弟义气↑ · 可能结识贵人", f:()=>this.doActivity("bbq")});
-    // 用「兄弟义气」结识新兄弟
+    choices.push({t:"🍻 兄弟活动（火锅 / 烧烤）", sub:"兄弟义气↑ · 各花钱+5点时间 · 可能结识猛人", f:()=>this.broActivityMenu()});
+    if(!s.hasGf) choices.push({t:`💘 尝试脱单${s.courtPlan?"（已设策略·可改）":""}`, sub:"网恋 / 图书馆搭讪 · 学期末看情商定成败", f:()=>this.courtMenu(()=>this.semesterStart())});
     const unmet=Object.keys(PEOPLE).filter(id=>!s.friends[id]);
     if(unmet.length) choices.push({t:"🧲 结识新兄弟（花兄弟义气）", sub:`掏出义气结交新朋友（现有义气 ${s.bro}）`, f:()=>this.recruitMenu(()=>this.semesterStart())});
-    if(s.canStock) choices.push({t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财", sub: s.pendingStock?"本年度已投，等结算":"每年一次·本金锁定到年底", f:()=>this.stockGame(()=>this.semesterStart())});
     choices.push({t:"📇 联系人（女友 / 兄弟）", sub:"查看亲密度 · 维系 / 分手 / 绝交", f:()=>this.contactsPanel(()=>this.semesterStart())});
-    choices.push({t:"📚 开始上课", cls:"gold", f:()=>this.studyYear()});
+    choices.push({t:"📚 开始上课（先预算，再选课）", cls:"gold", f:()=>this.studyYear()});
     D({loc:`${s.school} · 学期初`, lines, choices});
+  },
+  broActivityMenu(){
+    const s=this.s; const E=this.econ(); const f=s.semFlags||(s.semFlags={}); const per=ACT_WEEKS*ACT_WEEKLY;
+    const choices=[];
+    if(!f.huoguo)  choices.push({t:`🍲 兄弟火锅（${E.sym}${fmt(per)} + 5点时间）`, sub:"兄弟义气↑ · 可能结识猛人", f:()=>this.doActivity("hot")});
+    if(!f.shaokao) choices.push({t:`🍢 兄弟烧烤（${E.sym}${fmt(per)} + 5点时间）`, sub:"兄弟义气↑ · 可能结识贵人", f:()=>this.doActivity("bbq")});
+    if(!choices.length) choices.push({t:"（本学期火锅烧烤都约过了）", f:()=>this.semesterStart()});
+    choices.push({t:"↩ 返回", f:()=>this.semesterStart()});
+    D({loc:"🍻 兄弟活动", lines:[["bro","整一顿？火锅烧烤都成，热闹热闹增进感情。每样花钱之外，还要占 5 点时间（开学在时间界面强制扣）。",{big:true}]], choices});
+  },
+
+  /* ===================== 尝试脱单（学期末按情商定成败） ===================== */
+  _courtPlanDesc(){ const c=this.s.courtPlan; if(!c) return "无"; if(c.mode==="net") return "网恋尝试";
+    const tn={meinu:"美女",fujie:"富姐",xueba:"学霸"}[c.target]||"对象"; return `图书馆搭讪·${tn}${c.breakfast?"·买早餐":""}`; },
+  courtMenu(back){
+    const s=this.s;
+    const lines=[["you",`情商 ${s.eq}。脱单有风险——情商太低贸然出击，可能被对方拉黑。${s.courtPlan?"\n当前计划："+this._courtPlanDesc():""}`,"think"]];
+    const choices=[
+      {t:"💻 网恋尝试", sub:"足不出户·占 5 点时间·学期末见分晓", f:()=>{ s.courtPlan={mode:"net"}; this.toast("已设：网恋尝试"); back(); }},
+      {t:"📚 图书馆搭讪", sub:"选攻略对象·占 10 点时间", f:()=>this.courtTargetMenu(back)},
+    ];
+    if(s.courtPlan) choices.push({t:"🚫 取消脱单计划", f:()=>{ s.courtPlan=null; this.toast("已取消脱单计划"); back(); }});
+    choices.push({t:"↩ 返回", f:back});
+    D({loc:"💘 尝试脱单", lines, choices});
+  },
+  courtTargetMenu(back){
+    const s=this.s; const blocked=s.blocked||[];
+    const targets=[{k:"meinu",nm:"💃 美女",d:"花钱多 → 收益健康"},{k:"fujie",nm:"💎 富姐",d:"费时间 → 零花钱/借钱"},{k:"xueba",nm:"🤓 学霸",d:"均衡 → 提升成绩"}];
+    const choices=targets.map(t=> blocked.includes(t.k)
+      ? {t:`🚫 ${t.nm}（已拉黑）`, sub:"无法再攻略", f:()=>this.courtTargetMenu(back)}
+      : {t:t.nm, sub:t.d, f:()=>this.courtBreakfast(t.k, back)});
+    choices.push({t:"↩ 返回", f:()=>this.courtMenu(back)});
+    D({loc:"📚 图书馆搭讪 · 选对象", lines:[["you","图书馆里，谁能成为我的攻略对象？情商够不够，学期末见真章。","think"]], choices});
+  },
+  courtBreakfast(target, back){
+    const s=this.s; const E=this.econ(); const bp=Math.round(E.live*0.3);
+    D({loc:"📚 图书馆搭讪", lines:[["you","要不要顺手买份早餐递过去？花点小钱，但能加成功率。","think"]],
+      choices:[
+        {t:`🥐 买早餐示好（${E.sym}${fmt(bp)}）`, sub:"提升成功率", cls:"gold", f:()=>{ s.courtPlan={mode:"library",target,breakfast:true}; this.toast("已设：图书馆搭讪 + 早餐"); back(); }},
+        {t:"🙅 不买，纯靠嘴", f:()=>{ s.courtPlan={mode:"library",target,breakfast:false}; this.toast("已设：图书馆搭讪"); back(); }},
+        {t:"↩ 返回", f:()=>this.courtTargetMenu(back)},
+      ]});
+  },
+  _becomeGf(type){
+    const s=this.s; s.hasGf=true; s.gfType=type; s.gfFavor=type==="net"?72:60; s.gfWarned=false; s.gfOrigin={cur:s.cur, line:s.lineType};
+  },
+  // 学期末公布脱单进度（全屏动画）
+  courtResultEvent(info, next){
+    const s=this.s;
+    if(info.success){
+      this._becomeGf(info.type); this.render();
+      const tn={meinu:"美女",fujie:"富姐",xueba:"学霸",net:"网恋对象"}[info.type];
+      return this.eventSplash({emoji:"💖", title:"脱单成功", sub:`你和${tn}在一起了`, color:"#ff8ecb"}, ()=>{
+        D({loc:"💖 脱单成功", tw:true, lines:[["gf","以后请多关照啦～",{big:true}],["env","💕 攻略成功！面板已切换为「女友亲密度」。"],["you","总算脱单了！","think"]], choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+      });
+    }
+    if(info.blocked){
+      s.blocked=s.blocked||[]; if(info.target && !s.blocked.includes(info.target)) s.blocked.push(info.target); this.render();
+      const tn={meinu:"美女",fujie:"富姐",xueba:"学霸"}[info.target]||"对方";
+      return this.eventSplash({emoji:"🚫", title:"被拉黑", sub:`情商太低，${tn}把你拉黑了`, color:"#ff5b5b"}, ()=>{
+        D({loc:"🚫 被拉黑", tw:true, lines:[["env",`💔 情商不足还贸然出击，${tn}觉得被冒犯，直接把你拉黑了！（联系人里显示「拉黑」，该对象无法再攻略）`],["you","用力过猛，社死了……","think"]], choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+      });
+    }
+    return this.eventSplash({emoji:"💢", title:"脱单失败", sub:"这学期没成，下学期再战", color:"#ffcc4d", hold:1600}, ()=>{
+      D({loc:"💘 脱单进度", tw:true, lines:[["env","😶 这学期的脱单尝试没能成功。下学期可重新设置策略。"],["you","再接再厉吧。","think"]], choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+    });
   },
 
   /* ===================== 结识新兄弟（消耗兄弟义气） ===================== */
@@ -2384,9 +2539,11 @@ const Game = {
     if(id==="yong") extra.push(["env","🛡️ 勇哥提醒：【远离加菲猫】——往后碰到加菲猫，你能避开他的精神内耗。"]);
     if(id==="xuzi") extra.push(["env","🛡️ 旭子是阿鲁巴队长，今后被阿鲁巴的概率大幅降低。"]);
     if(id==="garf"){
+      s.flags.garfMovePending=true; // 下学期触发被动搬家
       if(s.flags.warnedGarf) extra.push(["env","💡 想起勇哥的告诫，你和加菲猫客气两句，没被他的 emo 拖下水。"]);
       else { const hp=rand(6,14); s.health=clamp(s.health-hp,0,100); this.render();
         extra.push(["garf","哥们儿，我跟你掏心窝子唠唠我那些破事儿……",{big:true}],["env",`🧠 被加菲猫的 emo 暴击，精神内耗，健康 -${hp}。`]); }
+      extra.push(["env","🏠 跟加菲猫走得近，下学期怕是要被他拉着一起「被动搬家」……"]);
     }
     // 全屏动画：新朋友进入联系人
     this.eventSplash({emoji:CHARS[id]?CHARS[id].face:"🤝", title:`${p.nm} 加入联系人`, sub:"🤝 结识新兄弟", color:"#ffcc4d", hold:1900}, ()=>{
@@ -2409,13 +2566,15 @@ const Game = {
       ? ["env",`💗 女友（${tn[s.gfType]||"女友"}）· 亲密度 ${s.gfFavor}/100${s.gfWarned?"　⚠️ 吵架预警":""}`]
       : ["env","💗 感情状态：单身"]);
     const ids=Object.keys(s.friends||{});
-    if(ids.length) ids.forEach(id=>lines.push(["env",`🧑‍🤝‍🧑 ${PEOPLE[id]?PEOPLE[id].nm:id} · 亲密度 ${s.friends[id].fav||0}/100`]));
+    if(ids.length) ids.forEach(id=>lines.push(["env",`🧑‍🤝‍🧑 ${this.friendInfo(id).nm}${id==="roommate"?"（室友）":""} · 亲密度 ${s.friends[id].fav||0}/100`]));
     else lines.push(["env","🧑‍🤝‍🧑 暂无结识的兄弟"]);
+    // 被拉黑的攻略对象
+    if((s.blocked||[]).length) lines.push(["env",`🚫 已拉黑：${s.blocked.map(k=>({meinu:"美女",fujie:"富姐",xueba:"学霸"}[k]||k)).join("、")}（无法再攻略）`]);
     const choices=[];
     if(s.hasGf) choices.push({t:"💔 主动分手", cls:"danger", f:()=>this.breakUp(
       {sub:"你主动结束了这段关系", lines:[["you","对不起，我们还是分开吧。","think"],["env","💔 你主动提出了分手。面板已切回「情商」。"]]}, back)});
     ids.forEach(id=>{
-      const fr=s.friends[id]; const nm=PEOPLE[id]?PEOPLE[id].nm:id;
+      const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
       choices.push({t:`🍻 请 ${nm} 吃饭（${E.sym}${fmt(treat)}）`, sub:`维系亲密度（现 ${fr.fav||0}）`, f:()=>{
         if(s.money<treat){ this.toast("钱不够"); return; }
         s.money-=treat; fr.fav=clamp((fr.fav||0)+rand(8,16),0,100); this.addStat("bro",rand(1,3)); this.render();
@@ -2427,7 +2586,7 @@ const Game = {
     D({loc:"📇 联系人", lines, choices});
   },
   cutBrother(id, back){
-    const s=this.s; const nm=PEOPLE[id]?PEOPLE[id].nm:id;
+    const s=this.s; const nm=this.friendInfo(id).nm;
     const owed=(s.broLoanFrom===id)?(s.broLoan||0):0;
     delete s.friends[id];
     if(s.broLoanFrom===id){ s.broLoan=0; s.broLoanFrom=null; } // 绝交：债务一笔勾销，但义气受损
@@ -2643,8 +2802,9 @@ const Game = {
     s.money += s.incomeY; logs.push(`💼 年薪到账 +¥${fmt(s.incomeY)}`);
     s.money = Math.max(0, s.money - s.costY); logs.push(`🏠 上海生活开销 -¥${fmt(s.costY)}`);
     this.settleStock(logs); // 年底结算投资
-    if(s.job==="quant"){ const d=rand(6,14); s.health=clamp(s.health-d,0,100); logs.push(`🩺 高强度工作，健康 -${d}`); }
-    else { const d=rand(1,4); s.health=clamp(s.health-d,0,100); }
+    const adrain=this.ageHealthDrain();
+    if(s.job==="quant"){ const d=rand(6,14)+adrain; s.health=clamp(s.health-d,0,100); logs.push(`🩺 高强度工作${adrain?`+年纪渐长`:""}，健康 -${d}`); }
+    else { const d=rand(1,4)+adrain; s.health=clamp(s.health-d,0,100); if(adrain) logs.push(`⏳ 年纪渐长，健康 -${d}`); }
     this.render();
     if(s.health<=0) return this.endingDeath();
     if(s.job==="car" && s.shYears>=3 && Math.random() < (s.shYears-2)*0.3) return this.endingShanghaiCar();
@@ -2785,8 +2945,9 @@ const Game = {
       choices:[{t:"▶ 开始实习", cls:"gold", f:()=>this.internRound()}]});
   },
   internRound(){
-    this._scene="internRound";
     const s=this.s;
+    if(s.internRegular) return this.researcherRound(); // 转正后 → 正式研究员
+    this._scene="internRound";
     D({loc:"🪙 实习 · 分配精力",
       lines:[["env",`转正进度 ${Math.round(s.internProg)}%　女友亲密度 ${s.gfFavor}　月薪 £${fmt(s.internSalary)}`],
              ["you","这一阶段，多搬砖还是多陪她？","think"]],
@@ -2802,9 +2963,11 @@ const Game = {
     const life=100-work;
     const inc=s.internSalary*12; s.money=Math.max(0, s.money+inc-s.costY);
     s.internProg=Math.min(120, s.internProg + work*0.6);
-    if(!s.internRegular && s.internProg>=100){ s.internRegular=true; s.internSalary*=2; s.incomeY=s.internSalary*12; this.toast("🎉 转正！工资翻倍"); }
+    let promoted=false;
+    if(!s.internRegular && s.internProg>=100){ s.internRegular=true; s.internSalary*=2; s.incomeY=s.internSalary*12; promoted=true; }
     const gd=Math.round((life-50)*0.3);
     s.gfFavor=clamp(s.gfFavor+gd,0,100);
+    const adrain=this.ageHealthDrain(); if(adrain) s.health=clamp(s.health-adrain,0,100);
     this.render();
     if(s.gfFavor<50){
       s.costY=0;
@@ -2812,18 +2975,177 @@ const Game = {
         {sub:"眼里只有工作", lines:[["gf","你眼里只有工作……我们结束吧。",{big:true}],["env","💔 感情破裂。你心灰意冷，离开伦敦回国工作。"],["you","拼了命搞钱，却把她弄丢了。","think"]]},
         ()=>{ this.moveCountry("CNY"); s.job="car"; s.lineType="shanghai"; s.incomeY=300000; s.costY=200000; this.shanghaiHub(); });
     }
-    if(s.gfFavor<60) this.eventSplash({emoji:"⚠️", title:"吵架预警", sub:"女友亲密度跌破 60", color:"#ffcc4d", hold:1600}, ()=>this._internSummary(inc));
-    else this._internSummary(inc);
+    const go=()=>{ if(promoted) return this.skillUnlock({emoji:"🔬", title:"转正·正式研究员", color:"#58a6ff", desc:"转正成功！岗位升为「正式研究员」，工资翻倍。今后每年可分配 工作/社交/女友/健身，并选择理财方式。"}, ()=>this._internSummary(inc)); this._internSummary(inc); };
+    if(s.gfFavor<60) this.eventSplash({emoji:"⚠️", title:"吵架预警", sub:"女友亲密度跌破 60", color:"#ffcc4d", hold:1600}, go);
+    else go();
   },
   _internSummary(inc){
     const s=this.s;
     if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
     const choices=[];
-    if(s.internRegular) choices.push({t:"🌃 见好就收，带她回上海", sub:"圆满收尾", cls:"gold", f:()=>this.endingLondonHappy()});
-    choices.push({t:"▶ 继续下一阶段", f:()=>this.internRound()});
+    if(s.internRegular) choices.push({t:"🔬 进入正式研究员生活", sub:"分配 工作/社交/女友/健身 + 理财", cls:"gold", f:()=>this.researcherRound()});
+    else choices.push({t:"▶ 继续下一阶段", f:()=>this.internRound()});
     D({loc:"🪙 实习 · 小结",
       lines:[["env",`这阶段到手 £${fmt(inc)}，生活 -£${fmt(s.costY)}。转正进度 ${Math.round(s.internProg)}%，女友亲密度 ${s.gfFavor}。`]],
       choices});
+  },
+
+  /* ===================== 正式研究员：四向时间 + 理财 ===================== */
+  researcherRound(){
+    this._scene="researcherRound"; const s=this.s; const sym=cursym();
+    const cats=[{k:"work",nm:"工作",sub:"加薪/年终奖"},{k:"social",nm:"社交",sub:"兄弟义气/人脉"},{k:"love",nm:"女友",sub:"维系亲密度"},{k:"fit",nm:"健身",sub:"恢复健康·抗衰老"}];
+    const init=s.lastResearch||{work:40,social:20,love:20,fit:20};
+    const invTxt = s.researchInvest ? (s.researchInvest.type==="nasdaq"?`定投纳指 ${sym}${fmt(s.researchInvest.amt)}`:(s.researchInvest.type==="crypto"?`炒币 ${sym}${fmt(s.researchInvest.amt)}`:"已搏一搏")) : "未选";
+    D({loc:"🔬 正式研究员 · 这一年", art:"london",
+      lines:[
+        ["env",`💼 正式研究员　年薪 £${fmt(s.internSalary*12)}　现金 ${sym}${fmt(s.money)}　女友亲密度 ${s.gfFavor}　健康 ${s.health}`],
+        ["you","时间得分着用：搬砖、社交、陪她、还得健身别垮了。再挑个理财方式。","think"],
+      ],
+      extra:`<div class="alloc" id="resAlloc">
+        ${cats.map(c=>`<div class="row"><div class="nm">${c.nm}<small>${c.sub}</small></div>
+          <input type="range" min="0" max="100" step="5" value="${init[c.k]}" data-rk="${c.k}" oninput="Game._resSync()">
+          <div class="amt" id="ra_${c.k}">${init[c.k]}</div></div>`).join("")}
+        <div class="pool">合计 <b id="resPool">0</b> / 100（超了也行，越拼越伤身）　<span id="resNote"></span></div>
+      </div>
+      <div class="hint" style="text-align:left">本年理财：<b style="color:var(--gold)">${invTxt}</b></div>`,
+      choices:[
+        {t:"📈 选择理财方式", sub:"定投纳指 / 炒币 / 搏一搏", f:()=>{ s.lastResearch=this._readResearch(); this.researchInvestMenu(); }},
+        {t:"✅ 确定，过这一年", cls:"gold", f:()=>{ s.lastResearch=this._readResearch(); this.researcherResolve(); }},
+        {t:"🌃 见好就收，带她回上海", sub:"圆满收尾", f:()=>this.endingLondonHappy()},
+      ]});
+    this._resSync();
+  },
+  _readResearch(){ const a={work:0,social:0,love:0,fit:0}; document.querySelectorAll('#resAlloc input').forEach(i=>a[i.dataset.rk]=+i.value); return a; },
+  _resSync(){ let t=0; document.querySelectorAll('#resAlloc input').forEach(i=>{ t+=+i.value; const el=document.getElementById("ra_"+i.dataset.rk); if(el) el.textContent=i.value; });
+    const p=document.getElementById("resPool"); if(p) p.textContent=t; const n=document.getElementById("resNote");
+    if(n) n.innerHTML = t>100?`<span style="color:var(--red)">超 ${t-100}·更耗健康</span>`:(t<100?`<span style="color:var(--green)">余 ${100-t}·更养身</span>`:`<span style="color:var(--gold)">刚好</span>`); },
+  researchInvestMenu(){
+    const s=this.s; const sym=cursym(); const max=s.money;
+    const amtInput=(id,def)=>`<input type="number" id="${id}" value="${def}" min="0" max="${max}" inputmode="numeric" style="width:140px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:24px;text-align:center;padding:4px 6px">`;
+    D({loc:"📈 本年理财", tw:true,
+      lines:[["env",`手头现金 ${sym}${fmt(max)}。选一种理财——年底用走势图揭晓盈亏。`],["you","稳一点定投，刺激一点炒币，或者赌一把。","think"]],
+      extra:`<div class="stockbox"><div style="font-size:13px;margin-bottom:6px">投入金额（定投/炒币用）</div>${amtInput("resAmt",Math.round(max*0.3))}</div>`,
+      choices:[
+        {t:"📉 定投纳指", sub:"低风险低收益（约 +5%~+18%）", f:()=>{ const a=clamp(Math.round(+document.getElementById("resAmt").value||0),0,max); if(a<=0){this.toast("金额要大于0");return;} s.researchInvest={type:"nasdaq",amt:a}; this.toast("已选：定投纳指"); this.researcherRound(); }},
+        {t:"🪙 炒币 All-or-nothing", sub:"高风险高收益（暴富或腰斩）", cls:"gold", f:()=>{ const a=clamp(Math.round(+document.getElementById("resAmt").value||0),0,max); if(a<=0){this.toast("金额要大于0");return;} s.researchInvest={type:"crypto",amt:a}; this.toast("已选：炒币"); this.researcherRound(); }},
+        {t:"🎲 搏一搏（斗地主/赌球/Polymarket）", f:()=>{ s.researchInvest=null; this.researcherGamble(); }},
+        {t:"🚫 这年不理财", f:()=>{ s.researchInvest=null; this.researcherRound(); }},
+        {t:"↩ 返回", f:()=>this.researcherRound()},
+      ]});
+  },
+  // 研究员专用「搏一搏」（自带返回研究员界面，不与学业预算流程耦合）
+  researcherGamble(){
+    const s=this.s; const sym=cursym();
+    const games=[{nm:"🃏 斗地主",win:0.5,mult:2.0,d:"50% 翻倍"},{nm:"⚽ 赌球",win:0.45,mult:2.2,d:"45% 拿2.2倍"},{nm:"📊 Polymarket",win:0.4,mult:2.6,d:"40% 拿2.6倍"}];
+    D({loc:"🎲 搏一搏", lines:[["env",`手头 ${sym}${fmt(s.money)}。押哪个？`]],
+      choices: games.map(g=>({t:g.nm, sub:g.d, f:()=>this.researcherGamblePlay(g)})).concat([{t:"↩ 返回", f:()=>this.researchInvestMenu()}])});
+  },
+  researcherGamblePlay(g){
+    const s=this.s; const sym=cursym(); const max=s.money; const def=Math.round(max/2);
+    D({loc:`🎲 ${g.nm}`, lines:[["env",`${g.d}。押多少？输光本金，赢了乘 ${g.mult}。`]],
+      extra:`<div class="stockbox"><input type="number" id="rgNum" value="${def}" min="0" max="${max}" inputmode="numeric" style="width:150px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:26px;text-align:center;padding:6px"><div class="hint">手头 ${sym}${fmt(max)}</div></div>`,
+      choices:[
+        {t:"🎲 梭哈！", cls:"gold", f:()=>{ const bet=clamp(Math.round(+(document.getElementById("rgNum")||{}).value||0),0,max); if(bet<=0){this.toast("押注要大于0");return;}
+          if(Math.random()<g.win){ const gain=Math.round(bet*(g.mult-1)); s.money+=gain; this.render();
+            D({loc:`🎲 ${g.nm} · 赢了！`, tw:true, lines:[["env",`🎉 +${sym}${fmt(gain)}！`]], choices:[{t:"↩ 回研究员", cls:"gold", f:()=>this.researcherRound()}]});
+          } else { s.money=Math.max(0,s.money-bet); this.render();
+            D({loc:`🎲 ${g.nm} · 输了`, tw:true, lines:[["env",`💸 输光 -${sym}${fmt(bet)}。`]], choices:[{t:"↩ 回研究员", cls:"gold", f:()=>this.researcherRound()}]});
+          } }},
+        {t:"↩ 返回", f:()=>this.researcherGamble()},
+      ]});
+  },
+  researcherResolve(){
+    const s=this.s; const a=this._readResearch(); const sym=cursym(); const logs=[];
+    s.age++;
+    // 收入
+    const inc=s.internSalary*12; s.money=Math.max(0, s.money+inc-s.costY); logs.push(`💼 年薪到账 +£${fmt(inc)}，生活 -£${fmt(s.costY)}`);
+    // 工作→加薪机会
+    if(a.work>=50 && Math.random()<a.work/200){ s.internSalary=Math.round(s.internSalary*1.15); s.incomeY=s.internSalary*12; logs.push(`📈 工作出色，月薪涨到 £${fmt(s.internSalary)}`); }
+    // 社交→兄弟义气/人脉
+    if(a.social>0){ const g=this.addStat("bro", Math.round(a.social*0.1)); this.addStat("renmai", Math.round(a.social*0.06)); if(g) logs.push(`🍻 社交，兄弟义气 +${g}`); }
+    // 女友→亲密度
+    const gd=Math.round((a.love-30)*0.4); s.gfFavor=clamp(s.gfFavor+gd,0,100); logs.push(`${gd>=0?"💞":"💔"} 陪伴女友，亲密度 ${gd>=0?"+":""}${gd}`);
+    // 健身→健康（抵消年龄损耗）
+    const adrain=this.ageHealthDrain(); const heal=Math.round(a.fit*0.18); const net=heal-adrain;
+    s.health=clamp(s.health+net,0,100); logs.push(`🏋️ 健身 +${heal}　⏳ 年龄损耗 -${adrain}（净 ${net>=0?"+":""}${net}）`);
+    this.render();
+    // 分手判定
+    if(s.gfFavor<50 && s.hasGf){ s.costY=0; return this.breakUp(
+      {sub:"聚少离多", lines:[["gf","聚少离多，我撑不住了……分开吧。",{big:true}],["env","💔 感情破裂，你回国发展。"]]},
+      ()=>{ this.moveCountry("CNY"); s.job="car"; s.lineType="shanghai"; s.incomeY=300000; s.costY=200000; this.shanghaiHub(); }); }
+    // 投资结算（曲线动画）
+    const cont=()=>this._researcherSummary(logs);
+    if(s.researchInvest){ const iv=s.researchInvest; s.researchInvest=null; return this.settleResearchInvest(iv, cont); }
+    cont();
+  },
+  settleResearchInvest(iv, next){
+    const s=this.s; const sym=cursym(); const amt=iv.amt;
+    s.money=Math.max(0,s.money-amt); // 先扣本金
+    let mult, vol, title;
+    if(iv.type==="nasdaq"){ mult=1+(rand(5,18)/100); vol=0.04; title="定投纳指"; }
+    else { const up=Math.random()<0.5; mult= up? (1.5+Math.random()*1.5) : (0.2+Math.random()*0.55); vol=0.16; title="炒币"; }
+    const finalVal=Math.round(amt*mult); const profit=finalVal-amt;
+    const pts=this._genPath(amt, mult, vol, 16);
+    this.assetCurve({title, invest:amt, points:pts, profit, sym}, ()=>{
+      s.money+=finalVal; s.stockLoss=(s.stockLoss||0)+Math.max(0,-profit); this.render();
+      D({loc:"📈 投资结算", tw:true,
+        lines:[["env",`${title}：投入 ${sym}${fmt(amt)} → 收回 ${sym}${fmt(finalVal)}，收益 ${profit>=0?"+":""}${sym}${fmt(profit)}。`],["you", profit>=0?"赚了！":"亏麻了……","think"]],
+        choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+    });
+  },
+  _researcherSummary(logs){
+    const s=this.s;
+    if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
+    if(this.isBuffett && this.isBuffett()) {/* 伦敦不判巴菲特，略 */}
+    if(s.age>=35) return this.endingDelivery("35 岁仍未上岸");
+    D({loc:"🔬 研究员 · 年度小结",
+      lines:[["env",logs.join("\n")],["you",`现金 ${cursym()}${fmt(s.money)}　健康 ${s.health}　女友亲密度 ${s.gfFavor}`,"think"]],
+      choices:[
+        {t:"🌃 见好就收，带她回上海", sub:"圆满收尾", cls:"gold", f:()=>this.endingLondonHappy()},
+        {t:"▶ 再干一年", f:()=>this.researcherRound()},
+      ]});
+  },
+  // 生成一条从 start 到 start*mult 的价格路径（带波动）
+  _genPath(start, mult, vol, n){
+    const pts=[Math.round(start)]; const target=start*mult;
+    for(let i=1;i<n-1;i++){ const t=i/(n-1); const base=start+(target-start)*t; const noise=base*vol*(Math.random()*2-1); pts.push(Math.max(0,Math.round(base+noise))); }
+    pts.push(Math.max(0,Math.round(target))); return pts;
+  },
+  // 年度资产走势曲线动画（紧张刺激地逐点跳动，最后揭晓收益）
+  assetCurve(o, next){
+    const pts=o.points, n=pts.length, sym=o.sym||cursym();
+    const W=320,H=150,pad=14;
+    const min=Math.min(...pts), max=Math.max(...pts), rng=(max-min)||1;
+    const X=i=>pad+i*(W-2*pad)/(n-1), Y=v=>H-pad-(v-min)/rng*(H-2*pad);
+    D({loc:"📈 年度资产走势",
+      lines:[["env",`${o.title||"本年度投资"}　投入 ${sym}${fmt(o.invest)}`]],
+      extra:`<div class="stockbox">
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:170px;background:#0a0d12;border-radius:8px">
+          <polyline id="curveLine" fill="none" stroke="var(--gold)" stroke-width="2.5" points=""/>
+          <circle id="curveDot" r="4" fill="#fff" style="display:none"/>
+        </svg>
+        <div class="reel" id="curveVal">${sym}${fmt(pts[0])}</div>
+        <div class="hint" id="curveNote">实时行情跳动中……</div>
+      </div>`,
+      choices:[{t:"▶ 查看收益", cls:"gold", id:"curveGo", f:next}]});
+    const line=document.getElementById("curveLine"), dot=document.getElementById("curveDot"),
+          valEl=document.getElementById("curveVal"), go=document.getElementById("curveGo");
+    if(!line){ return; }
+    if(go) go.style.display="none";
+    let i=0; const pStr=[];
+    (this._curveTimers||[]).forEach(clearTimeout); this._curveTimers=[];
+    const step=()=>{
+      const x=X(i), y=Y(pts[i]); pStr.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      line.setAttribute("points", pStr.join(" "));
+      if(dot){ dot.style.display=""; dot.setAttribute("cx",x); dot.setAttribute("cy",y); }
+      if(valEl){ const up=pts[i]>=pts[0]; valEl.textContent=sym+fmt(pts[i]); valEl.style.color=up?"var(--green)":"var(--red)"; }
+      i++;
+      if(i<n){ this._curveTimers.push(setTimeout(step,95)); }
+      else { const note=document.getElementById("curveNote"); const p=o.profit;
+        if(note) note.innerHTML=`收盘：本金 ${sym}${fmt(o.invest)} → <b style="color:${p>=0?'var(--green)':'var(--red)'}">${sym}${fmt(o.invest+p)}</b>（${p>=0?'+':''}${sym}${fmt(p)}）`;
+        if(go) go.style.display=""; }
+    };
+    this._curveTimers.push(setTimeout(step,300));
   },
 
   /* ========================================================= */
@@ -3083,7 +3405,7 @@ const PEOPLE={
   feizi:{nm:"非子", cost:18, get:{bro:5, wuli:12},   intro:"少林俗家弟子，练过。以后谁惹你，报我名号。"},
   yong: {nm:"勇哥", cost:16, get:{bro:8},            intro:"叫我勇哥。给你提个醒——离那个加菲猫远点，那货负能量爆棚，听他唠嗑能给你整抑郁了。"},
   kong: {nm:"孔老师",cost:16, get:{renmai:14},       intro:"我孔某人朋友遍天下，往后给你多引荐人脉。"},
-  garf: {nm:"加菲猫",cost:10, get:{bro:4, eq:6},     intro:"吃了吗您？来来来，整两串，开心最重要！"},
+  garf: {nm:"加菲猫",cost:10, get:{bro:4, eq:6},     intro:"我觉得星巴克也不贵啊，要不要一起约跑步？"},
   jenny:{nm:"杰尼龟",cost:16, get:{xuexi:14},        intro:"考试范围我都划好了，跟着我稳过。"},
 };
 function gainText(get){ const L={bro:"兄弟义气",eq:"情商",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
@@ -3097,7 +3419,9 @@ function renderLine(l){
   const big = !!opt.big;
   if(who==="env") return `<div class="msg env"><div class="bub">${text}</div></div>`;
   if(who==="end") return `<div class="msg end"><div class="bub">${text}</div></div>`;
-  const c=CHARS[who]||{name:who,face:"❓",side:"left"};
+  // 「室友老铁」personalized 为随机指定的具体室友
+  let c=CHARS[who]||{name:who,face:"❓",side:"left"};
+  if((who==="bro"||who==="roommate") && Game.s && Game.s.roommate) c={name:Game.s.roommate.name, face:Game.s.roommate.face, side:"left", color:"#ff7a3c"};
   const center = c.side==="center";
   const ring = big?`style="box-shadow:0 0 0 2px ${c.color||'var(--accent)'},0 4px 12px rgba(0,0,0,.5)"`:"";
   return `<div class="msg ${c.side}${big?' bigface':''}">`+
