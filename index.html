@@ -400,6 +400,7 @@ const Game = {
       lastAlloc:null, lastSocial:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
       actCount:0, gfTimeLock:0,
       papers:0, phdYear:0, nordicY:0, shYears:0,
+      semGiftN:0, semTreatN:0, // 单学期内 送礼/请客 次数（边际递减用）
     };
   },
 
@@ -1020,6 +1021,7 @@ const Game = {
   // 一年开始：整个德国读书期间都有兄弟社交（不伦瑞克/慕尼黑/斯图加特）
   beginYear(){
     const s=this.s; const lt=s.lineType;
+    s.semGiftN=0; s.semTreatN=0; // 新学期：送礼/请客 边际递减计数清零
     if(this.germanStudy()){
       s.semFlags={}; s.semActivities=[];
       // 加菲猫专属：结识后下学期触发「被动搬家」
@@ -1431,6 +1433,18 @@ const Game = {
     const expense = living + social + repay + activity;
     return {workInc, internInc, social, repay, living, activity, income, expense, endBal: s.money + income - expense};
   },
+  // 投资可投上限：学业预算阶段用「学期末预计结余」（避免投资后资金穿底），其余场景用现金
+  _investCap(){
+    const s=this.s;
+    if(this._allocCtx && this.studying && this.studying()){
+      const ek=s.career>=20?"intern":"work";
+      const alloc=Object.assign({study:0,intern:0,work:0,friend:0,flirt:0}, s.lastAlloc||{study:40,friend:20});
+      alloc[ek]=this._budgetWork||0;
+      const p=this._projectBudget(alloc, this._budgetMoney||{friend:0,flirt:0,repay:0});
+      return Math.max(0, Math.min(s.money, Math.round(p.endBal)));
+    }
+    return s.money;
+  },
   _allocSync(){
     let used=0;
     document.querySelectorAll('#alloc input').forEach(i=>{ used+=+i.value; document.getElementById("amt_"+i.dataset.k).textContent=i.value; });
@@ -1565,7 +1579,9 @@ const Game = {
     if(alloc.study>0){ const xg=this.addStat("xuexi", Math.round(alloc.study*0.05*(s.xuexiMult||1))); if(xg>0) logs.push(`🧠 勤学苦练，学习力 +${xg}`); }
     // ---- 社交：兄弟义气（边际递减）----
     if(alloc.friend>0||money.friend>0){
-      const raw=Math.round((alloc.friend*0.25 + (money.friend/E.socUnit)*0.6 + rand(0,4)) * (s.broMult||1) * (s.hasBoots?1.2:1));
+      // 花钱社交边际递减：用平方根曲线，前面花的最划算，越往后提升越小
+      const mUnits=Math.max(0, money.friend)/E.socUnit;
+      const raw=Math.round((alloc.friend*0.25 + Math.sqrt(mUnits)*1.6 + rand(0,4)) * (s.broMult||1) * (s.hasBoots?1.2:1));
       const g=this.addStat("bro", raw);
       if(g>0) logs.push(`🍻 兄弟义气 +${g}${s.hasBoots?"（马丁靴气场加成）":""}`);
     }
@@ -1575,7 +1591,7 @@ const Game = {
     const flirtMoney = money.flirt/E.socUnit; // 归一化
     if(!s.hasGf){
       // 单身时把妹只历练情商
-      if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round((alloc.flirt*0.22 + flirtMoney*0.5 + rand(0,3))*(s.eqMult||1)*(s.hasHair?1.25:1))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}${s.hasHair?"（大背头加成）":""}`); }
+      if(flirtTime>0||flirtMoney>0){ const g=this.addStat("eq", Math.round((alloc.flirt*0.22 + Math.sqrt(Math.max(0,flirtMoney))*1.3 + rand(0,3))*(s.eqMult||1)*(s.hasHair?1.25:1))); if(g>0) logs.push(`💘 把妹历练，情商 +${g}${s.hasHair?"（大背头加成）":""}`); }
       // ---- 主动脱单尝试结算（学期末按情商定成败，过低则被拉黑）----
       if(s.courtPlan){
         const cp=s.courtPlan; s.courtPlan=null; const eq=s.eq||0;
@@ -1698,12 +1714,14 @@ const Game = {
     // ---- 睡眠平衡：精力总量决定健康（兄弟局额外耗精力） ----
     const cap=this.energyCap();
     const used=(alloc.study||0)+(alloc.intern||0)+(alloc.work||0)+(alloc.friend||0)+(alloc.flirt||0)+actEnergy;
-    let hpDelta=-rand(0,2); // 年龄自然小幅下降
+    let hpDelta=0;
     if(used>cap){
-      const deficit=used-cap, drop=Math.round(deficit*(rand(20,50)/100)*(s.healthDrainMult||1));
+      // 透支：睡眠不足，按缺口随机掉血，外加少量自然损耗
+      const deficit=used-cap, drop=Math.round(deficit*(rand(20,50)/100)*(s.healthDrainMult||1))+rand(0,2);
       hpDelta-=drop; logs.push(`😵 精力透支 ${deficit}%，睡眠不足，健康 -${drop}`);
     } else if(used<cap){
-      const surplus=cap-used, heal=Math.round(surplus*(rand(10,35)/100));
+      // 留有余力 → 一定休息回血（保证净增，绝不因为没分完而掉血）
+      const surplus=cap-used, heal=Math.max(1, Math.round(surplus*(rand(10,35)/100)));
       hpDelta+=heal; logs.push(`😴 余力 ${surplus}%，休整恢复，健康 +${heal}`);
     }
     // ---- 年龄越大、身体越扛不住：随年龄递增的健康损耗 ----
@@ -2837,10 +2855,14 @@ const Game = {
     }
     ids.forEach(id=>{
       const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
-      choices.push({t:`🍻 请 ${nm} 吃饭（${E.sym}${fmt(treat)}）`, sub:`维系亲密度（现 ${fr.fav||0}）`, f:()=>{
+      choices.push({t:`🍻 请 ${nm} 吃饭（${E.sym}${fmt(treat)}）`, sub:`维系亲密度（现 ${fr.fav||0}）${s.semTreatN?`　·　本学期已请 ${s.semTreatN} 次，效果递减`:""}`, f:()=>{
         if(s.money<treat){ this.toast("钱不够"); return; }
-        s.money-=treat; fr.fav=clamp((fr.fav||0)+rand(8,16),0,100); this.addStat("bro",rand(1,3)); this.render();
-        this.toast(`和 ${nm} 感情升温（亲密度 ${fr.fav}）`); this.contactsPanel(back);
+        // 单学期内请客越多，边际效益越低（首次最明显）
+        const decay=Math.pow(0.6, s.semTreatN||0);
+        const gain=Math.max(1, Math.round(rand(8,16)*decay));
+        s.money-=treat; fr.fav=clamp((fr.fav||0)+gain,0,100); this.addStat("bro",Math.max(1,Math.round(rand(1,3)*decay)));
+        s.semTreatN=(s.semTreatN||0)+1; this.render();
+        this.toast(`和 ${nm} 感情升温 +${gain}（亲密度 ${fr.fav}）`); this.contactsPanel(back);
       }});
       choices.push({t:`✂️ 与 ${nm} 绝交`, cls:"danger", f:()=>this.cutBrother(id, ()=>this.contactsPanel(back))});
     });
@@ -2870,14 +2892,18 @@ const Game = {
     const s=this.s; const E=this.econ(); const sym=cursym(); const max=s.money;
     const def=Math.min(max, E.socUnit*2);
     D({loc:"🎁 给女友送礼物", tw:true,
-      lines:[["gf","哎呀，你也太有心了吧～",{big:true}],["you",`手头 ${sym}${fmt(max)}。想花多少哄她开心？花得越多，亲密度涨得越多。`,"think"]],
+      lines:[["gf","哎呀，你也太有心了吧～",{big:true}],["env",`手头 ${sym}${fmt(max)}。花得越多亲密度涨得越多，但边际递减——${s.semGiftN?`本学期已送 ${s.semGiftN} 次，效果递减中`:"首次送礼效果最好"}。`]],
       extra:`<div class="stockbox"><input type="number" id="giftAmt" value="${def}" min="0" max="${max}" inputmode="numeric" style="width:160px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:26px;text-align:center;padding:6px"><div class="hint">手头 ${sym}${fmt(max)}</div></div>`,
       choices:[
         {t:"🎁 送出礼物", cls:"gold", f:()=>{
           const amt=clamp(Math.round(+(document.getElementById("giftAmt")||{}).value||0),0,max);
           if(amt<=0){ this.toast("金额要大于 0"); return; }
           s.money-=amt;
-          const up=this.addStat("gfFavor", clamp(Math.round(amt/E.socUnit*3)+rand(1,4),1,35));
+          // 金额边际递减（平方根）+ 单学期内送礼次数越多效果越弱（首次最明显）
+          const u=amt/E.socUnit;
+          const decay=Math.pow(0.6, s.semGiftN||0);
+          const up=this.addStat("gfFavor", clamp(Math.round((Math.sqrt(u)*5+rand(0,3))*decay),1,35));
+          s.semGiftN=(s.semGiftN||0)+1;
           this.render();
           this.eventSplash({emoji:"💝", title:"礼物已送达", sub:`女友亲密度 +${up}`, color:"#ff8ecb", hold:1500}, ()=>{
             if(this.isBuffett()) return this.endingBuffett();
@@ -2995,15 +3021,16 @@ const Game = {
         choices:[{t:"↩ 返回", f:back}]});
     }
     const a = s.cur==="EUR" ? [5000,10000] : (s.cur==="GBP"?[4500,9000]:[40000,80000]);
-    const readAmt=()=>Math.min(s.money, Math.max(0, Math.round(+(document.getElementById("stkAmt")||{}).value||0)));
+    const invMax=this._investCap();
+    const studyCtx = this._allocCtx && this.studying && this.studying();
+    const readAmt=()=>Math.min(invMax, Math.max(0, Math.round(+(document.getElementById("stkAmt")||{}).value||0)));
     D({loc:"📈 投资 · 建仓", art: s.lineType==="shanghai"?"shanghai":null,
       lines:[
-        ["env",`可投资金 ${cursym()}${fmt(s.money)}。每年只能建仓一次，本金锁定，年底用走势图揭晓盈亏。`],
-        ["you","稳一点定投纳指，还是赌一把 A 股？","think"],
+        ["env",`可投上限 ${cursym()}${fmt(invMax)}${studyCtx?"（按学期末预计结余，留足生活/还债开销）":""}。每年只能建仓一次，本金锁定，年底用走势图揭晓盈亏。`],
       ],
       extra:`<div class="stockbox">
-        <div style="font-size:13px;color:var(--dim);margin-bottom:8px">输入投入金额</div>
-        <input class="amt-in" id="stkAmt" type="number" min="0" step="1000" value="${Math.min(a[1], s.money)}">
+        <div style="font-size:13px;color:var(--dim);margin-bottom:8px">输入投入金额（上限 ${cursym()}${fmt(invMax)}）</div>
+        <input class="amt-in" id="stkAmt" type="number" min="0" max="${invMax}" step="1000" value="${Math.min(a[1], invMax)}">
       </div>`,
       choices:[
         {t:"📊 定投纳指（平均 +15% · 上下波动 25%）", sub:"稳健，但也可能小亏", cls:"gold", f:()=>{
