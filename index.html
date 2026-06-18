@@ -387,7 +387,7 @@ const Game = {
       creditGoal:120, lineType:"harbin",
       // 进阶数值
       wuli:0, renmai:0, xuexi:0, gfFavor:0, hasGf:false, gfType:null,
-      gfSkipSem:-1, netScam:0, gfLoan:0, gaokaoBonus:0, gfOrigin:null,
+      gfSkipSem:-1, netScam:0, gfLoan:0, gfLoanTaken:false, gaokaoBonus:0, gfOrigin:null,
       // 籍贯天赋
       origin:"hebei", home:"沧州",
       eqMult:1, broMult:1, xuexiMult:1, healthDrainMult:1,
@@ -401,6 +401,7 @@ const Game = {
       actCount:0, gfTimeLock:0,
       papers:0, phdYear:0, nordicY:0, shYears:0,
       semGiftN:0, semTreatN:0, // 单学期内 送礼/请客 次数（边际递减用）
+      lastPhdAlloc:null,
     };
   },
 
@@ -1098,6 +1099,7 @@ const Game = {
   breakUp(o, next){
     const s=this.s;
     s.hasGf=false; s.gfType=null; s.gfWarned=false; s.gfOrigin=null;
+    s.gfLoanTaken=false; // 换对象后，下一位富姐可再借一次
     // gfFavor 归零，面板自动切回「情商」
     s.gfFavor=0; this.render();
     this.eventSplash({emoji:"💔", title:"分手", sub:o&&o.sub||"一段感情，到此为止", color:"#ff5b5b"}, ()=>{
@@ -2150,12 +2152,11 @@ const Game = {
     const s=this.s; const E=this.econ();
     const back=()=>this.budgetPlan(credits, yrLabel, makeup);
     const choices=[];
-    if(s.hasGf && s.gfType==="fujie"){
-      const lend=Math.round(E.live*6);
-      choices.push({t:"💎 找富姐女友周转", sub:`无息借 ${E.sym}${fmt(lend)}（随时还）`, cls:"gold", f:()=>{
-        s.gfLoan=(s.gfLoan||0)+lend; s.money+=lend; this.render();
-        this.toast(`富姐借你 ${E.sym}${fmt(lend)}（无息）`); back();
-      }});
+    if(s.hasGf && s.gfType==="fujie" && !s.gfLoanTaken){
+      const lendMax=this.fujieLendMax();
+      choices.push({t:"💎 找富姐女友借钱", sub:`无息·每位女友仅一次·亲密度 ${s.gfFavor} → 最多 ${E.sym}${fmt(lendMax)}`, cls:"gold", f:()=>this.borrowFujie(credits,yrLabel,makeup,lendMax)});
+    } else if(s.hasGf && s.gfType==="fujie" && s.gfLoanTaken){
+      choices.push({t:"💎 富姐女友（已借过）", sub:"同一位女友只能借一次", f:()=>{ this.toast("跟这位富姐已经借过一次啦 🙊"); }});
     }
     if(s.school && s.yearInSchool<=2 && s.loan<this.loanCap())
       choices.push({t:"🏦 申请助学贷款", sub:`最多 ${E.sym}${fmt(this.loanCap())} · 年息10%（低息）`, cls:"gold", f:()=>this.offerLoan(credits,yrLabel,makeup)});
@@ -2169,6 +2170,37 @@ const Game = {
       lines:[["env","需要用钱周转？这几条路子能筹钱——正道、歪道、找兄弟，或赌一把。"],["you","钱要么借、要么挣、要么赌……合计合计。","think"]],
       choices});
   },
+  // 富姐可借上限：亲密度越高借得越多（无息）
+  fujieLendMax(){ const E=this.econ(); return Math.round(E.live*(2+8*(this.s.gfFavor||0)/100)); },
+  // 找富姐女友借钱：自定义金额（上限取决于亲密度），无息，每位女友仅一次
+  borrowFujie(credits, yrLabel, makeup, lendMax){
+    const s=this.s; const E=this.econ();
+    const def=Math.round(lendMax*0.6);
+    D({loc:"💎 找富姐女友借钱", tw:true,
+      lines:[
+        ["gf","缺钱花啦？跟我还客气什么～这次我借你，下不为例哦。",{big:true}],
+        ["env",`💗 亲密度 ${s.gfFavor} → 最多可借 ${E.sym}${fmt(lendMax)}（无息·每位女友仅一次）。`],
+      ],
+      extra:`<div class="credit-pick">
+        <div class="big"><input type="number" id="fjNum" value="${def}" min="0" max="${lendMax}" inputmode="numeric"
+            style="width:150px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:30px;text-align:center;padding:4px 6px"
+            oninput="Game._fjNumSync()"><small style="font-size:16px;color:var(--dim)"> ${E.sym}</small></div>
+        <input type="range" id="fjAmt" min="0" max="${lendMax}" step="${E.socStep}" value="${def}" oninput="Game._fjRangeSync()">
+        <div class="hint">上限 ${E.sym}${fmt(lendMax)}（亲密度越高借得越多）</div>
+      </div>`,
+      choices:[
+        {t:"💎 借这笔钱", cls:"gold", f:()=>{
+          const amt=clamp(Math.round(+(document.getElementById("fjNum")||{}).value||0),0,lendMax);
+          if(amt<=0){ this.toast("金额要大于 0"); return; }
+          s.gfLoan=(s.gfLoan||0)+amt; s.money+=amt; s.gfLoanTaken=true; this.render();
+          this.toast(`富姐借你 ${E.sym}${fmt(amt)}（无息）`);
+          this.budgetPlan(credits, yrLabel, makeup);
+        }},
+        {t:"↩ 返回", f:()=>this.cantAfford(credits, yrLabel, makeup)}
+      ]});
+  },
+  _fjNumSync(){ const r=document.getElementById("fjAmt"), n=document.getElementById("fjNum"); if(r&&n){ const v=clamp(Math.round(+n.value||0),+r.min,+r.max); r.value=v; } },
+  _fjRangeSync(){ const r=document.getElementById("fjAmt"), n=document.getElementById("fjNum"); if(r&&n) n.value=r.value; },
   // 向兄弟借钱：选人 → 手输金额 → 按亲密度判定成败
   borrowBrotherMenu(credits, yrLabel, makeup){
     const s=this.s; const back=()=>this.cantAfford(credits, yrLabel, makeup);
@@ -3368,61 +3400,142 @@ const Game = {
         choices:[{t:"🔬 开始博士生涯", cls:"gold", f:()=>this.aachenRound()}]});
     });
   },
+  // 博士：和读书一样的时间分配玩法（科研/社交，余力休息回血）
   aachenRound(){
     const s=this.s; this._scene="aachenRound"; this.mark(()=>this.aachenRound());
     if(s.papers>=5) return this.endingScholarLord();
-    D({loc:`🔬 亚琛博士 · 第${s.phdYear}年`, art:"germany",
+    if(s.phdYear>=8){ // 延毕过久 → 博士退学兜底
+      return D({loc:"🔬 亚琛博士 · 延毕", art:"germany", tw:true,
+        lines:[["prof2","八年了还没发够论文……博士读到头了，我也没办法。",{big:true}]],
+        choices:[{t:"🌃 回上海找份工作", cls:"gold", f:()=>this.enterShanghai("car")}]});
+    }
+    const cap=this.energyCap();
+    const la=s.lastPhdAlloc||{research:65, social:10};
+    D({loc:`🔬 亚琛博士 · 第${s.phdYear+1}年 · 时间规划`, art:"germany",
       lines:[
-        ["prof2",`论文进度 ${s.papers}/5　博士第 ${s.phdYear} 年。继续做研究吧——咱们这儿，论文就是一切。`,{big:true}],
-        ["you", s.phdYear>=4?"五年大限将近，得抓紧多发论文了！":"科研要坐得住冷板凳。","think"]],
+        ["prof2",`论文进度 ${s.papers}/5，博士第 ${s.phdYear+1} 年。每月 €3000 津贴照发。分配这一年的精力——科研多投论文，也别忘社交，留点余力休息养身。`,{big:true}],
+      ],
+      extra:`<div class="alloc" id="phdAlloc">
+        <div class="row"><div class="nm">科研<small>投论文·涨学习力</small></div>
+          <input type="range" min="0" max="100" step="5" value="${la.research}" data-k="research" oninput="Game._phdAllocSync()">
+          <div class="amt" id="pamt_research">${la.research}</div></div>
+        <div class="row"><div class="nm">社交<small>兄弟义气</small></div>
+          <input type="range" min="0" max="100" step="5" value="${la.social}" data-k="social" oninput="Game._phdAllocSync()">
+          <div class="amt" id="pamt_social">${la.social}</div></div>
+        <div class="pool">已用精力 <b id="phdPoolUsed">0</b> / ${cap}　<span id="phdSleepNote"></span></div>
+      </div>`,
       choices:[
-        {t:"🔬 全力科研（推进一年）", sub:"高产出·熬人伤身", cls:"gold", f:()=>this.aachenResolve(true)},
-        {t:"😌 张弛有度（推进一年）", sub:"产出一般·相对养身", f:()=>this.aachenResolve(false)},
+        {t:"🔬 确定，投入这一年", cls:"gold", f:()=>{ const a=this._readPhdAlloc(); s.lastPhdAlloc=a; this.aachenResolve(a); }},
       ]});
+    this._phdAllocSync();
   },
-  aachenResolve(hard){
+  _readPhdAlloc(){ const a={research:0,social:0}; document.querySelectorAll('#phdAlloc input').forEach(i=>a[i.dataset.k]=+i.value); return a; },
+  _phdAllocSync(){
+    let used=0; document.querySelectorAll('#phdAlloc input').forEach(i=>{ used+=+i.value; const el=document.getElementById("pamt_"+i.dataset.k); if(el) el.textContent=i.value; });
+    const cap=this.energyCap(); const pu=document.getElementById("phdPoolUsed"); if(pu) pu.textContent=used;
+    const note=document.getElementById("phdSleepNote"); if(!note) return;
+    if(used>cap) note.innerHTML=`<span style="color:#f5a623">超 ${used-cap}%·睡眠不足（有可能影响健康）</span>`;
+    else if(used<cap) note.innerHTML=`<span style="color:var(--green)">余 ${cap-used}%·可休息回血</span>`;
+    else note.innerHTML=`<span style="color:var(--gold)">刚好</span>`;
+  },
+  aachenResolve(alloc){
     const s=this.s; const E=this.econ(); s.phdYear++; s.age++;
     const logs=[];
-    const stipend=Math.round(E.live*12*0.85);          // 博士津贴：基本够生活
-    s.money += stipend; s.money=Math.max(0,s.money - E.live*12);
-    logs.push(`🎓 博士津贴 +€${fmt(stipend)}，生活开销 -€${fmt(E.live*12)}`);
-    const drain=(hard?rand(10,18):rand(3,8))+this.ageHealthDrain();
-    s.health=clamp(s.health-drain,0,100); logs.push(`${hard?"🔥 高强度科研":"😌 张弛有度"}，健康 -${drain}`);
-    // 论文产出：努力 + 学习力
-    const lvl=(s.xuexi||0)/200;
-    let pubs=0; if(Math.random()<(hard?0.9:0.5)+lvl) pubs++; if(hard && Math.random()<0.35+lvl) pubs++;
-    s.papers+=pubs;
-    logs.push(pubs>0?`📄 论文中稿 +${pubs}（累计 ${s.papers}/5）`:"📄 这一年投稿全被拒，颗粒无收……");
-    if(hard) this.addStat("xuexi", rand(2,5));
+    // 收入：博士每月 €3000 工资
+    const income=3000*12, living=E.live*12;
+    s.money += income; s.money=Math.max(0, s.money - living);
+    logs.push(`🎓 博士工资 +€${fmt(income)}（€3000/月），生活开销 -€${fmt(living)}`);
+    // 健康：精力透支掉血，留有余力则休息回血（保底 +1）
+    const cap=this.energyCap();
+    const used=(alloc.research||0)+(alloc.social||0);
+    let hp=0;
+    if(used>cap){ const dx=Math.round((used-cap)*(rand(20,50)/100)*(s.healthDrainMult||1))+rand(0,2); hp-=dx; logs.push(`😵 精力透支，睡眠不足，健康 -${dx}`); }
+    else if(used<cap){ const heal=Math.max(1,Math.round((cap-used)*(rand(10,35)/100))); hp+=heal; logs.push(`😴 留有余力，休整恢复，健康 +${heal}`); }
+    const ad=this.ageHealthDrain(); if(ad>0){ hp-=ad; logs.push(`⏳ 年纪渐长（${s.age}岁），健康 -${ad}`); }
+    s.health=clamp(s.health+hp,0,100);
+    // 社交
+    if(alloc.social>0){ const g=this.addStat("bro", Math.round(alloc.social*0.25*(s.broMult||1))); if(g>0) logs.push(`🍻 兄弟义气 +${g}`); }
+    // 学习力
+    if(alloc.research>0){ const xg=this.addStat("xuexi", Math.round(alloc.research*0.04*(s.xuexiMult||1))); if(xg>0) logs.push(`🧠 钻研学问，学习力 +${xg}`); }
+    // 论文投稿：科研时间决定投稿篇数与中稿率（+ 学习力）
+    const r=(alloc.research||0)/100;
+    const attempts=Math.max(1, Math.round(r*3 + 0.5));
+    const pPass=clamp(0.18 + r*0.5 + (s.xuexi||0)/350, 0.08, 0.92);
+    const subs=[]; let got=0;
+    for(let i=0;i<attempts;i++){ const ok=(Math.random()<pPass) && (s.papers+got)<5; if(ok) got++; subs.push(ok); }
+    s.papers=Math.min(5, s.papers+got);
+    logs.push(got>0?`📄 ${got} 篇论文中稿（累计 ${s.papers}/5）`:`📄 今年投稿全被拒，颗粒无收……`);
     this.render();
     const proceed=()=>{
       if(s.health<=0) return this.endingDeath();
       if(s.papers>=5) return this.endingScholarLord();
-      if(s.phdYear>=8){ // 延毕过久 → 博士退学兜底
-        return D({loc:"🔬 亚琛博士 · 延毕", art:"germany", tw:true,
-          lines:[["prof2","八年了还没发够论文……博士读到头了，我也没办法。",{big:true}],["you","学术这条路，终究没能走到底。","think"]],
-          choices:[{t:"🌃 回上海找份工作", cls:"gold", f:()=>this.enterShanghai("car")}]});
-      }
-      // 博士第二年：结婚（合肥老兄弟来贺）
+      // 博士第二年：回合肥结婚（邀请好友贺喜·随礼）
       if(s.phdYear>=2 && !s.flags.phdMarried){ s.flags.phdMarried=true; return this.phdMarriageEvent(logs); }
-      D({loc:`🔬 亚琛博士 · 第${s.phdYear}年小结`, lines:[["env",logs.join("\n")]],
+      D({loc:`🔬 亚琛博士 · 第${s.phdYear}年小结`, art:"germany", lines:[["env",logs.join("\n")]],
         choices:[{t:"▶ 继续", cls:"gold", f:()=>this.aachenRound()}]});
     };
-    if(s.health<=15 && !s.hospWarned) return this.hospitalEvent(proceed);
-    proceed();
+    // 先逐篇公布投稿结果，再处理后续
+    const afterReveal=()=>{ if(s.health<=15 && !s.hospWarned) return this.hospitalEvent(proceed); proceed(); };
+    this.revealPapers(subs, afterReveal);
   },
+  // 逐篇公布投稿结果（替代"公布每门课成绩"）
+  revealPapers(subs, done){
+    const s=this.s;
+    const rows=subs.map((ok,i)=>`<div class="crow" id="prow_${i}"><span class="cn">投稿论文 ${i+1}</span><span class="cg" id="pcg_${i}">投稿中…</span></div>`).join("");
+    D({loc:`🔬 亚琛博士 · 第${s.phdYear}年 · 投稿结果`, art:"germany",
+      lines:[["prof2","投出去的稿子，期刊编辑部陆续回信了——一封一封看吧。",{big:true}]],
+      extra:`<div class="grades">${rows}<div class="gsum" id="pgsum"></div></div>`, anim:false, choices:[]});
+    if(!document.getElementById("pgsum")) return done(); // 无 DOM（测试）直接继续
+    let i=0;
+    const step=()=>{
+      if(i>=subs.length){
+        const el=document.getElementById("pgsum");
+        if(el) el.innerHTML=`<div class="respop">论文进度 <b style="color:var(--gold)">${s.papers}/5</b></div>`;
+        return setTimeout(done, 1200);
+      }
+      const el=document.getElementById("pcg_"+i), row=document.getElementById("prow_"+i);
+      if(el){ el.innerHTML = subs[i] ? `<b style="color:var(--green)">中稿</b> ✅` : `<b style="color:var(--red)">被拒</b> ❌`;
+        el.classList.add("respop"); if(row) row.classList.add("lit"); }
+      i++; setTimeout(step, 650);
+    };
+    setTimeout(step, 700);
+  },
+  // 博士第二年：回合肥办婚礼，遍邀好友——到场看交情，每人随礼 €1000
+  _weddingAcceptProb(fav){ return clamp(0.12 + (fav||0)/115, 0.06, 0.97); },
   phdMarriageEvent(logs){
-    const s=this.s; s.gfFavor=clamp((s.gfFavor||60)+rand(8,15),0,100); this.render();
-    this.eventSplash({emoji:"💒", title:"博士第二年 · 结婚", sub:"学术伉俪喜结连理", color:"#ff8ecb", hold:2000}, ()=>{
-      D({loc:"💒 亚琛 · 婚礼", art:"germany", tw:true,
+    const s=this.s; s.gfFavor=clamp((s.gfFavor||60)+rand(8,15),0,100); this._phdLogs=logs||[]; this.render();
+    this.eventSplash({emoji:"💒", title:"博士第二年 · 结婚", sub:"回合肥办喜事·遍邀好友", color:"#ff8ecb", hold:1900}, ()=>{
+      const ids=Object.keys(s.friends||{});
+      const rows = ids.length
+        ? ids.map(id=>{ const fav=s.friends[id].fav||0; return `🧑‍🤝‍🧑 ${this.friendInfo(id).nm}（亲密度 ${fav}） · 到场约 ${Math.round(this._weddingAcceptProb(fav)*100)}%`; }).join("<br>")
+        : "（你还没结识什么兄弟，婚礼怕是冷清……）";
+      D({loc:"💒 合肥 · 婚礼请柬", art:"germany", tw:true,
         lines:[
-          (logs&&logs.length)?["env",logs.join("\n")]:["env","平静的一年。"],
-          ["env","读博第二年，你和女友在亚琛办了婚礼，特地把合肥的老兄弟们都请了过来。"],
-          ["xuzi","哥们儿结婚啦！我从合肥打飞的过来贺喜，必须随个大红包！",{big:true}],
-          ["you","成家立业，人生圆满了一半。论文，继续冲！","think"],
+          (this._phdLogs.length)?["env",this._phdLogs.join("\n")]:["env","读博第二年，喜事将近。"],
+          ["xuzi","哥们儿你也要结婚啦！回合肥办，热闹！把咱那帮老兄弟都喊上！",{big:true}],
+          ["env","🧧 给兄弟们群发请柬——来不来看交情（亲密度越高越可能到场），到场的每人随礼 €1000。"],
         ],
-        choices:[{t:"▶ 继续科研", cls:"gold", f:()=>this.aachenRound()}]});
+        extra:`<div class="budget">${rows}</div>`,
+        choices:[{t:"📨 发出请柬，大办一场", cls:"gold", f:()=>this.hefeiWeddingResolve()}]});
     });
+  },
+  hefeiWeddingResolve(){
+    const s=this.s; const ids=Object.keys(s.friends||{});
+    const came=[];
+    ids.forEach(id=>{ if(Math.random()<this._weddingAcceptProb(s.friends[id].fav||0)){ came.push(id); s.friends[id].fav=clamp((s.friends[id].fav||0)+rand(2,5),0,100); } });
+    const gift=came.length*1000; s.money+=gift;
+    if(came.length) this.addStat("bro", rand(2,6));
+    this.render();
+    const nm=came.map(id=>this.friendInfo(id).nm).join("、")||"——";
+    D({loc:"💒 合肥 · 婚礼现场", art:"germany", tw:true,
+      lines:[
+        ["env", came.length
+          ? `🎉 ${came.length} 位兄弟专程赶到合肥贺喜：${nm}。`
+          : "😶 没几个兄弟到场，婚礼略显冷清……"],
+        ["env", `🧧 共收随礼 €${fmt(gift)}（到场每人 €1000）。`],
+        came.length?["xuzi","必须随个大红包！哥几个的交情，钱算个啥！",{big:true}]:["env","好在新娘子一直陪着你，日子照样甜。"],
+      ],
+      choices:[{t:"▶ 继续科研", cls:"gold", f:()=>this.aachenRound()}]});
   },
   endingScholarLord(){
     this._scene="endingScholarLord"; const s=this.s;
