@@ -399,6 +399,7 @@ const Game = {
       broLoan:0, broLoanFrom:null,
       lastAlloc:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
       actCount:0, gfTimeLock:0,
+      papers:0, phdYear:0, nordicY:0, shYears:0,
     };
   },
 
@@ -557,11 +558,13 @@ const Game = {
   // 感情状态：单身 / 有女友
   partnered(){ return !!this.s.hasGf; },
   // 工作/读书状态：在校读书 vs 已工作
-  studying(){ const s=this.s; return !!(s.school && s.gpaSys && s.lineType!=="shanghai" && s.internProg==null); },
+  studying(){ const s=this.s; return !!(s.school && s.gpaSys && !["shanghai","nordic","aachen"].includes(s.lineType) && s.internProg==null); },
   isMaster(){ return ["munich","stuttgart","london"].includes(this.s.lineType); },
   isBachelor(){ return ["harbin","tongji","braunschweig"].includes(this.s.lineType); },
   // 一个结算周期的月数：本科按学年(12个月)，硕士按学期(6个月)
   monthsPerTerm(){ return this.isMaster() ? 6 : 12; },
+  // 时间线：18岁=2012年，年龄每+1岁则年份+1
+  curYear(){ return 2012 + ((this.s.age||18) - 18); },
   // 德国/海外读书期间（兄弟社交开放）
   germanStudy(){ return ["braunschweig","munich","stuttgart"].includes(this.s.lineType); },
 
@@ -656,6 +659,7 @@ const Game = {
     const studying = this.studying();
     const debt=this.totalDebt();
     const st=[
+      ["年份", this.curYear()+"年", "", null, ""],
       ["年龄", s.age+"岁", "", null, ""],
       // 现金紧挨债务（有负债时）
       ["现金", cursym()+fmt(s.money), "", "money", ""],
@@ -1014,6 +1018,8 @@ const Game = {
   placeLabel(){
     const s=this.s, lt=s.lineType;
     if(lt==="shanghai") return {p:"上海", t:`第 ${s.shYears||0} 年`};
+    if(lt==="nordic") return {p:"🌍 北欧外企", t:`第 ${s.nordicY||0} 年`};
+    if(lt==="aachen") return {p:"🎓 亚琛工业大学", t:`博士第 ${s.phdYear||0} 年 · 论文 ${s.papers||0}/5`};
     if(s.school){
       const emo = lt==="harbin"?"🛠":(lt==="tongji"?"🏛":(lt==="london"?"🇬🇧":"🇩🇪"));
       return {p:emo+" "+s.school, t:this.yrLabelFor(Math.max(1,s.yearInSchool))};
@@ -1517,8 +1523,11 @@ const Game = {
         s.creditsEarned+=passed; s.creditsFailed=Math.max(0, s.creditsFailed-passed);
       } else {
         s.creditsEarned+=passed; s.creditsFailed+=failed;
-        if(semGpa<=1.5){ s.money+=E.schHi; logs.push(`🏆 优异奖学金 +${E.sym}${fmt(E.schHi)}`); }
-        else if(semGpa<=2.3){ s.money+=E.schMid; logs.push(`🥈 良好奖学金 +${E.sym}${fmt(E.schMid)}`); }
+        if(semGpa<=2.5){
+          const f=clamp((2.5-semGpa)/1.5,0,1);               // 1.0→满额，2.5→基础额
+          const sch=Math.round(E.schMid + (E.schHi-E.schMid)*f);
+          s.money+=sch; logs.push(`🎓 德国奖学金（绩点 ${semGpa}≤2.5，越好越多）+${E.sym}${fmt(sch)}`);
+        }
       }
       s.gpaTotal+=semGpa; s.gpaCount++; s.lastGpa=semGpa;
       courseData={courses, passed, failed, semGpa};
@@ -1749,6 +1758,10 @@ const Game = {
     // 女友重大事件：分手 / 网恋蒸发 / 吵架预警 → 全屏动画（_gfEvent 由 yearSummary 负责复盘清空）
     if(this._gfEvent==="breakup"||this._gfEvent==="netbust"){ const ev=this._gfEvent; const nx=after; after=()=>this.eventSplash({emoji:"💔", title:"分手", sub:ev==="netbust"?"网恋对象人间蒸发":"感情走到尽头", color:"#ff5b5b"}, nx); }
     else if(this._gfEvent==="warn"){ const nx=after; after=()=>this.eventSplash({emoji:"⚠️", title:"吵架预警", sub:"女友亲密度告急", color:"#ffcc4d", hold:1600}, nx); }
+    // 慕尼黑 TUM 第一学期结束：内燃机日薄西山，是否转学斯图加特新专业
+    if(s.lineType==="munich" && s.yearInSchool===1 && !s.flags.tumTransferAsked){ s.flags.tumTransferAsked=true; const nx=after; after=()=>this.tumTransferPrompt(nx); }
+    // 控制论：毕业前一学期强制获得女友（导师做媒）
+    if(s.major==="ctrl" && s.lineType==="stuttgart" && !s.hasGf && !s.flags.ctrlGf && s.creditsEarned>=s.creditGoal-18){ s.flags.ctrlGf=true; const nx=after; after=()=>this.ctrlForceGf(nx); }
     // 脱单进度公布（全屏）
     if(this._pendingCourt){ const info=this._pendingCourt; this._pendingCourt=null; const nx=after; after=()=>this.courtResultEvent(info, nx); }
     // 兄弟讨债剧情（全屏 + 还/拒选择）
@@ -2354,17 +2367,18 @@ const Game = {
     const s=this.s;
     s.school="不伦瑞克工业大学"; s.gpaSys="de5";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=120; s.lineType="braunschweig";
+    s.creditGoal=120; s.lineType="braunschweig"; s.major="ice"; // 内燃机车辆工程
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     const before=s.money;
     this.moveCountry("EUR"); // 资金兑换为欧元（换国家·事业度减半）
+    const fee=this.germanAppFee(); s.money=Math.max(0,s.money-fee); // 德国申请费 €1000
     this.render();
-    const exchanged = (s.cur==="EUR" && before>0);
+    const exchanged = (before>0);
     this.transition({emoji:"🏰", title:"不伦瑞克工大", sub:"关卡通过 · 远渡重洋", color:"#bc8cff"}, ()=>{
       D({loc:"🇩🇪 不伦瑞克 · 入学", art:"germany", tw:true,
         lines:[
-          ["env","🪪 获得【不伦瑞克工业大学学生证】！"+(exchanged?`\n💱 资金已按 1€≈${RATE}¥ 兑换：¥${fmt(before)} → €${fmt(s.money)}。`:"")],
-          ["prof2","Willkommen! 欢迎来到德国。这里本科 120 学分，绩点 0–5，记住——咱们这儿越高越好。",{big:true}],
+          ["env","🪪 获得【不伦瑞克工业大学学生证】！"+(exchanged?`\n💱 资金已按 1€≈${RATE}¥ 兑换。`:"")+`\n💶 缴纳德国院校申请费 €${fmt(fee)}。`],
+          ["prof2","Willkommen! 欢迎来到德国。这里本科 120 学分，专业是【传统内燃机车辆工程】，绩点 0–5，越高越好。",{big:true}],
           ["prof2","生活成本 €1,000/月，比慕尼黑斯图加特实惠。毕业绩点会决定你能申到哪所硕士。加油，Los geht's!"],
           ["you","换了个国家，重头再来。","think"],
         ],
@@ -2389,6 +2403,8 @@ const Game = {
       ]});
   },
 
+  // 德国院校申请费：每次申请 €1000（无论是否录取）
+  germanAppFee(){ return this.s.cur==="EUR"?1000:(this.s.cur==="GBP"?900:8000); },
   applyMaster(){
     const s=this.s;
     this.mark(()=>this.applyMaster());
@@ -2409,7 +2425,7 @@ const Game = {
       ],
       choices:[
         {t:"🦁 赌慕尼黑 TUM（申请费 €1000）", sub:`成功率约 ${Math.round(muProb*100)}% · 申请费不退`, cls:"gold", f:()=>{
-          const fee=s.cur==="EUR"?1000:(s.cur==="GBP"?900:8000);
+          const fee=this.germanAppFee();
           s.money=Math.max(0,s.money-fee); this.render();
           this.toast(`已交 TUM 申请费 ${cursym()}${fmt(fee)}（不退）`);
           if(Math.random()<muProb){
@@ -2438,16 +2454,16 @@ const Game = {
     const s=this.s;
     s.school="慕尼黑工业大学"; s.gpaSys="de5";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=90; s.lineType="munich";
+    s.creditGoal=90; s.lineType="munich"; s.major="ice"; // 内燃机车辆工程
     s.setupGf=true;
     // 女友需在学习阶段靠情商自行脱单，不再自动赠送
-    this.moveCountry("EUR");
+    this.moveCountry("EUR"); // 申请费已在「赌 TUM」时缴纳
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
     this.transition({emoji:"🦁", title:"慕尼黑工大 TUM", sub:"关卡通过 · 名校录取", color:"#ffcc4d"}, ()=>{
       D({loc:"🇩🇪 慕尼黑 · 硕士序章", art:"munich", tw:true,
         lines:[
-          ["env","🪪 获得【慕尼黑工业大学学生证】！硕士项目：90 学分，德国绩点。"],
+          ["env","🪪 获得【慕尼黑工业大学学生证】！硕士项目：90 学分，专业【传统内燃机车辆工程】，德国绩点。"],
           ["gf","到慕尼黑啦？我在汉堡这边也快毕业咯，加油读书，别太想我～",{big:true}],
           ["you","异地恋 + 读研，时间和钱都得算计着花。","think"],
         ],
@@ -2460,14 +2476,13 @@ const Game = {
     this.mark(()=>this.munichGraduate());
     D({loc:"慕尼黑 · 毕业", art:"munich", tw:true,
       lines:[
-        ["env",`🎓 获得【慕尼黑工业大学硕士毕业证】！毕业绩点 ${avgGpa(s)}/5.0。`],
-        ["prof2","TUM 的传统车辆工程……说句实话，进车企稳，但想进高薪量化机构，还得是自动驾驶方向。",{big:true}],
-        ["you","直接回上海进车企？还是去斯图加特再读个自动驾驶，搏一把量化？","think"],
+        ["env",`🎓 获得【慕尼黑工业大学硕士毕业证】！专业：传统内燃机车辆工程，毕业绩点 ${avgGpa(s)}/5.0。`],
+        ["prof2","内燃机这行……唉，日薄西山喽。你这文凭，回国也就进红旗或上海传统车企了。",{big:true}],
+        ["you","内燃机专业，出路就这么窄。回上海传统车企，还是回老家进红旗？","think"],
       ],
       choices:[
-        {t:"🌃 直接回上海 · 进车企", sub:"慕尼黑传统车辆工程对口车企", cls:"gold", f:()=>this.enterShanghai("car")},
-        {t:"🏰 去斯图加特重读 · 自动驾驶", sub:"再读一个硕士方向，解锁上海量化机构", f:()=>this.enterStuttgart()},
-        {t:"🚩 回国进红旗", sub:"红旗支线", f:()=>this.endingHongqi()}
+        {t:"🌃 回上海 · 传统车企", sub:"内燃机对口·工资偏低", cls:"gold", f:()=>this.shanghaiJobMenu()},
+        {t:"🚩 回国进红旗", sub:"红旗支线·铁饭碗", f:()=>this.endingHongqi()}
       ]});
   },
 
@@ -2479,28 +2494,31 @@ const Game = {
     s.creditGoal=90; s.lineType="stuttgart";
     // 女友需在学习阶段靠情商自行脱单，不再自动赠送
     this.moveCountry("EUR");
-    s.money=Math.max(0,s.money-1500);
+    const fee=this.germanAppFee(); s.money=Math.max(0,s.money-fee-1500); // 申请费€1000 + 学费€1500
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
     this.transition({emoji:"🏰", title:"斯图加特 · 司徒", sub:"关卡通过 · 入学", color:"#4dd0e1"}, ()=>{
       D({loc:"🇩🇪 斯图加特 · 选专业", art:"stuttgart", tw:true,
         lines:[
-          ["env","🪪 获得【斯图加特大学学生证】！缴纳学费 €1500。硕士 90 学分。"],
-          ["prof2","保时捷与奔驰的故乡。选个方向吧——电车，还是自动驾驶？",{big:true}],
+          ["env",`🪪 获得【斯图加特大学学生证】！缴纳申请费 €${fmt(fee)} + 学费 €1500。硕士 90 学分。`],
+          ["prof2","保时捷与奔驰的故乡。新增了几个前沿方向，挑一个吧——电车、自动驾驶，还是搞学术的控制论？",{big:true}],
         ],
         choices:[
-          {t:"🔋 电车类", sub:"对口车企，稳", f:()=>this.pickMajor("ev")},
-          {t:"🤖 自动驾驶", sub:"对口量化机构，且习得「炒股」技能", cls:"gold", f:()=>this.pickMajor("ad")}
+          {t:"🔋 电车类", sub:"对口传统车企 / 新势力", f:()=>this.pickMajor("ev")},
+          {t:"🤖 自动驾驶", sub:"对口新势力 / 量化机构，习得「炒股」", cls:"gold", f:()=>this.pickMajor("ad")},
+          {t:"🧠 控制论（学术路线）", sub:"可申亚琛工大读博·走学阀路线", f:()=>this.pickMajor("ctrl")}
         ]});
     });
   },
 
   pickMajor(m){
     const s=this.s; s.major=m;
+    const mn={ev:"电车类", ad:"自动驾驶", ctrl:"控制论（学术）"}[m];
     const next=()=>{
-      const lines=[["env",`你选择了【${m==="ev"?"电车类":"自动驾驶"}】方向。`]];
-      if(m==="ad") lines.push(["prof2","自动驾驶玩的是数据与算法——量化机构最爱。",{big:true}]);
-      else lines.push(["prof2","电车方向扎实，毕业进车企对口。好好干。",{big:true}]);
+      const lines=[["env",`你选择了【${mn}】方向。`]];
+      if(m==="ad") lines.push(["prof2","自动驾驶玩的是数据与算法——新势力车企与量化机构最爱。",{big:true}]);
+      else if(m==="ev") lines.push(["prof2","电车方向扎实，传统车企、新势力都对口。好好干。",{big:true}]);
+      else lines.push(["prof2","控制论是学术的硬骨头——读得好，能一路读到博士，成一方学阀。毕业前我可得给你介绍个对象，免得你读傻了。",{big:true}]);
       lines.push(["you","方向定了，开整！","think"]);
       D({loc:"斯图加特 · 开学", art:"stuttgart", tw:true, lines,
         choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
@@ -2513,11 +2531,41 @@ const Game = {
     next();
   },
 
+  // 慕尼黑 TUM 第一学期结束：内燃机日薄西山，是否转学斯图加特（电车/自动驾驶/控制论）
+  tumTransferPrompt(next){
+    this.transition({emoji:"📉", title:"内燃机·日薄西山", sub:"行业寒冬·转型抉择", color:"#8b98a8", hold:2200}, ()=>{
+      D({loc:"🦁 慕尼黑 · 转学抉择", art:"munich", tw:true,
+        lines:[
+          ["prof2","跟你说个事儿——内燃机这专业，眼看着是日薄西山了。听说斯图加特新增了电车、自动驾驶专业，前途光明。",{big:true}],
+          ["you","TUM 名校光环 vs 转学搏个新方向……要不要转？转学要重新交申请费、学费，学分清零重读。","think"],
+        ],
+        choices:[
+          {t:"🏰 转学斯图加特（换新专业）", sub:"申请费€1000+学费·学分重置·可选电车/自动驾驶/控制论", cls:"gold", f:()=>this.enterStuttgart()},
+          {t:"🦁 留在 TUM 读内燃机", sub:"名校文凭·但出路只有红旗/上海传统车企", f:next},
+        ]});
+    });
+  },
+  // 控制论：毕业前一学期，导师强制做媒（保证学术人也有伴）
+  ctrlForceGf(next){
+    const s=this.s;
+    s.hasGf=true; s.gfType="xueba"; s.gfFavor=68; s.gfWarned=false; s.gfOrigin={cur:s.cur, line:s.lineType}; this.render();
+    this.eventSplash({emoji:"💞", title:"导师做媒", sub:"学术伉俪·喜结连理在即", color:"#ff8ecb", hold:1700}, ()=>{
+      D({loc:"💞 斯图加特 · 导师做媒", art:"stuttgart", tw:true,
+        lines:[
+          ["prof2","读控制论读得两耳不闻窗外事可不行！我给你介绍了我的博士生，门当户对，处处看！",{big:true}],
+          ["gf","学长你好～听导师说你科研很厉害，以后一起做研究呀！",{big:true}],
+          ["env","💕 控制论学术路线·强制脱单！面板已切换为「女友亲密度」。"],
+        ],
+        choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+    });
+  },
+
   stuttgartGraduate(){
     const s=this.s;
     this.mark(()=>this.stuttgartGraduate());
     const metFeizi = !!s.friends.feizi;
     const recip = metFeizi?"非子":"兄弟";
+    const majorNm={ev:"电车类", ad:"自动驾驶", ctrl:"控制论（学术）"}[s.major]||"工程";
     // 甩棍：留给兄弟 / 自己保留（持有甩棍才有此抉择）
     const batonChoice = s.hasBaton ? [
       {t:`🥢 把甩棍留给${recip}`, sub:"兄弟义气↑，武力值↓", cls:"gold", f:()=>{
@@ -2525,22 +2573,32 @@ const Game = {
         this.toast(`甩棍传承给了${recip} 🥷`); this._stuttFarewell();
       }},
       {t:"🥢 自己保留甩棍", sub:"防身要紧", f:()=>{ s.keptBaton=true; this._stuttFarewell(); }}
-    ] : [{t:"🌃 回上海发展", sub: s.major==="ad"?"进量化机构":"进车企", cls:"gold", f:()=>this._stuttFarewell()}];
+    ] : [{t:"▶ 继续", sub:"看看毕业去向", cls:"gold", f:()=>this._stuttFarewell()}];
 
     D({loc:"斯图加特 · 毕业", art:"stuttgart", tw:true,
       lines:[
-        ["env",`🎓 获得【斯图加特大学硕士毕业证】！毕业绩点 ${avgGpa(s)}/5.0，方向：${s.major==="ev"?"电车类":"自动驾驶"}。`],
+        ["env",`🎓 获得【斯图加特大学硕士毕业证】！毕业绩点 ${avgGpa(s)}/5.0，方向：${majorNm}。`],
         (metFeizi?["feizi","哥，你要回国了啊……那根甩棍，跟你出生入死，留个念想给兄弟？",{big:true}]
-                :["you",`收拾行李，准备回国发展。要不把这根甩棍传给${home()}的兄弟？`,"think"]),
+                :["you",`毕业了，下一步该往哪走？${s.hasBaton?"要不把这根甩棍传给"+home()+"的兄弟？":""}`,"think"]),
       ],
       choices: batonChoice});
   },
   _stuttFarewell(){
     const s=this.s;
-    const job = s.major==="ad" ? "quant" : "car";
+    // 控制论：学术路线，可申亚琛读博，或回上海进传统车企
+    if(s.major==="ctrl"){
+      return D({loc:"斯图加特 · 启程", art:"stuttgart", tw:true,
+        lines:[["prof2","你这控制论底子，去亚琛工大读个博士，将来就是学界大牛了。当然，回上海进车企也行。",{big:true}],
+               ["you","是继续深造冲学术，还是回国上班？","think"]],
+        choices:[
+          {t:"🎓 去亚琛工大读博士", sub:"五年制·学术路线·冲「学阀衣锦还乡」", cls:"gold", f:()=>this.enterAachen()},
+          {t:"🌃 回上海 · 传统车企", sub:"放弃学术·进厂上班", f:()=>this.enterShanghai("car")}
+        ]});
+    }
+    // 电车 / 自动驾驶：回上海按专业选岗
     D({loc:"斯图加特 · 启程",
       lines:[["you","德国的日子，结束了。回上海，闯一闯。","think"]],
-      choices:[{t: s.major==="ad"?"🌃 回上海 · 进量化机构":"🌃 回上海 · 进车企", cls:"gold", f:()=>this.enterShanghai(job)}]});
+      choices:[{t:"🌃 回上海发展", sub:"按专业选择岗位", cls:"gold", f:()=>this.shanghaiJobMenu()}]});
   },
 
   /* ===================== 学期初活动 ===================== */
@@ -2723,6 +2781,8 @@ const Game = {
         extra.push(["garf","哥们儿，我跟你掏心窝子唠唠我那些破事儿……",{big:true}],["env",`🧠 被加菲猫的 emo 暴击，精神内耗，健康 -${hp}。`]); }
       extra.push(["env","🏠 跟加菲猫走得近，下学期怕是要被他拉着一起「被动搬家」……"]);
     }
+    if(id==="kubi"){ const hp=rand(5,12); s.health=clamp(s.health-hp,0,100); this.render();
+      extra.push(["kubi","跟你说啊，我这日子是真没法过了……（一通负能量倾泻）",{big:true}],["env",`🧠 小苦逼负能量爆棚，听完心里堵得慌，精神内耗，健康 -${hp}。`]); }
     // 全屏动画：新朋友进入联系人
     this.eventSplash({emoji:CHARS[id]?CHARS[id].face:"🤝", title:`${p.nm} 加入联系人`, sub:"🤝 结识新兄弟", color:"#ffcc4d", hold:1900}, ()=>{
       D({loc:"🤝 结识新兄弟", tw:true,
@@ -2838,7 +2898,7 @@ const Game = {
                                           : `你${shop.what}，结果买错了被一顿猛喷……（兄弟义气 ${shopBro}）`]);
     else lines.push(["env","你懒得动弹，蹭了顿现成的。"]);
     // 认识新人：兄弟义气越高、人脉越高，越容易
-    const pool = kind==="hot" ? ["xuzi","feizi","yong"] : ["kong","garf","jenny"];
+    const pool = kind==="hot" ? ["xuzi","feizi","yong"] : ["kong","garf","jenny","kubi"];
     const unmet = pool.filter(id=>!s.friends[id]);
     const meetProb = clamp(0.3 + s.bro/160 + s.renmai/220, 0.3, 0.95);
     if(unmet.length && Math.random()<meetProb) return this.meetPerson(unmet[rand(0,unmet.length-1)], nm, lines);
@@ -2967,24 +3027,46 @@ const Game = {
   },
 
   /* ===================== 上海支线 ===================== */
+  // 岗位元数据：名称 / 基础年薪
+  jobMeta(job){ return ({
+    quant:   {nm:"量化机构",     base:1000000},
+    newforce:{nm:"造车新势力",   base:700000},
+    car:     {nm:"传统车企",     base:300000},
+  })[job] || {nm:"传统车企", base:300000}; },
+  // 回上海·按专业选择岗位（自动驾驶→新势力/量化；电车→传统车企/新势力；其余→传统车企）
+  shanghaiJobMenu(){
+    const s=this.s; const mult=this.degreeMult();
+    const opt=(job, tag)=>{ const m=this.jobMeta(job); return {t:`🌃 ${m.nm}`, sub:`${tag} · 年薪约 ¥${fmt(Math.round(m.base*mult))}`, cls:job==="car"?"":"gold", f:()=>this.enterShanghai(job)}; };
+    let choices;
+    if(s.major==="ad") choices=[opt("newforce","薪高·健康掉得快"), opt("quant","顶薪·节奏极猛")];
+    else if(s.major==="ev") choices=[opt("newforce","薪高·健康掉得快"), opt("car","稳·工资低·两年裁员")];
+    else return this.enterShanghai("car"); // 内燃机/无方向：只能进传统车企
+    D({loc:"🌃 上海 · 选择岗位", art:"shanghai", tw:true,
+      lines:[
+        ["hr2",`你的专业是【${({ev:"电车",ad:"自动驾驶"}[s.major])}】，对口这几个岗位——挑一个吧。`,{big:true}],
+        ["you","新势力薪水高但熬人，传统车企稳但前景暗，量化最猛……怎么选？","think"],
+      ],
+      choices});
+  },
   enterShanghai(job){
     const s=this.s;
     this.moveCountry("CNY");
     s.job=job; s.lineType="shanghai"; s.shYears=0;
     s.costY=200000;
-    // 收入与毕业证数量挂钩（毕业证越多收入越高；UCL 退学者毕业证少，收入自然偏低）
-    const base = job==="quant" ? 1000000 : 300000;
-    s.incomeY = Math.round(base * this.degreeMult());
+    const m=this.jobMeta(job);
+    // 收入与毕业证数量挂钩（毕业证越多收入越高）
+    s.incomeY = Math.round(m.base * this.degreeMult());
     const halved=s.flags.moveHalved; s.flags.moveHalved=false;
     this.render();
-    this.transition({emoji:"🌃", title:"上海 · 闯荡", sub: job==="quant"?`量化机构 · 年薪 ¥${fmt(s.incomeY)}`:`车企 · 年薪 ¥${fmt(s.incomeY)}`, color:"#bc8cff"}, ()=>{
+    const greet = job==="quant" ? ["hr2","欢迎加入量化机构！收入可观，但节奏极猛——注意身体。",{big:true}]
+                : job==="newforce" ? ["hr2","欢迎加入造车新势力！期权管够、薪水翻倍，就是 996+ 是常态，悠着点。",{big:true}]
+                : ["hr","欢迎进传统车企！收入嘛……稳，但燃油车这行，且行且看吧。",{big:true}];
+    this.transition({emoji:"🌃", title:"上海 · 闯荡", sub:`${m.nm} · 年薪 ¥${fmt(s.incomeY)}`, color:"#bc8cff"}, ()=>{
       D({loc:"🌃 上海 · 入职", art:"shanghai", tw:true,
         lines:[
           halved?["env","🌍 跨国回流——海外的工作经验在国内不再适用，事业度已折半。"]:["env","🌍 回到祖国，重新出发。"],
-          ["env",`回到上海。基础生活成本 ¥20万/年。年薪 ¥${fmt(s.incomeY)}（与毕业证数量挂钩，共 ${s.diplomas.length} 张）。`],
-          job==="quant"
-            ? ["hr2","欢迎加入量化机构！收入可观，但节奏极猛——注意身体。",{big:true}]
-            : ["hr","欢迎进车企！收入稳定，前景嘛……且行且看吧。",{big:true}],
+          ["env",`回到上海，进了【${m.nm}】。基础生活成本 ¥20万/年。年薪 ¥${fmt(s.incomeY)}（与毕业证数量挂钩，共 ${s.diplomas.length} 张）。`],
+          greet,
           ["you","在魔都站稳脚跟，目标——财务自由。","think"],
         ],
         choices:[{t:"▶ 开始上海生活", cls:"gold", f:()=>this.shanghaiHub()}]});
@@ -3017,7 +3099,7 @@ const Game = {
     choices.push({t:"⏭️ 推进一年（领薪 · 生活开销）", cls:"gold", f:()=>this.shanghaiAdvanceYear()});
     D({loc:"🌃 上海", art:"shanghai",
       lines:[
-        ["env",`上海 · 第 ${s.shYears} 年　职业：${s.job==="quant"?"量化机构":"车企"}　资产 ¥${fmt(s.money)}`],
+        ["env",`上海 · 第 ${s.shYears} 年　职业：${this.jobMeta(s.job).nm}　资产 ¥${fmt(s.money)}`],
         ["you",`巴菲特目标：${target}。继续搞钱。`,"think"],
       ],
       choices});
@@ -3059,12 +3141,16 @@ const Game = {
     this.settleStock(logs); // 年底结算投资（可能设置走势图动画）
     const adrain=this.ageHealthDrain();
     if(s.job==="quant"){ const d=rand(6,14)+adrain; s.health=clamp(s.health-d,0,100); logs.push(`🩺 高强度工作${adrain?`+年纪渐长`:""}，健康 -${d}`); }
+    else if(s.job==="newforce"){ const d=rand(12,22)+adrain; s.health=clamp(s.health-d,0,100); logs.push(`🔋 新势力 996+，连轴转，健康 -${d}`); }
     else { const d=rand(1,4)+adrain; s.health=clamp(s.health-d,0,100); if(adrain) logs.push(`⏳ 年纪渐长，健康 -${d}`); }
     this.render();
     // 先放投资走势图动画（若有建仓），再走后续判定
     const proceed=()=>{
       if(s.health<=0) return this.endingDeath();
-      if(s.job==="car" && s.shYears>=3 && Math.random() < (s.shYears-2)*0.3) return this.endingShanghaiCar();
+      // 传统车企：干满两年触发裁员 → 回老家送外卖
+      if(s.job==="car" && s.shYears>=2 && !this.isBuffett()) return this.carLayoffEvent(logs);
+      // 造车新势力：健康掉到一定程度 → 生病住院 → 辞职抉择
+      if(s.job==="newforce" && s.health<35 && !s.flags.newforceQuit){ s.flags.newforceQuit=true; return this.newforceHospitalEvent(logs); }
       if(this.isBuffett()) return this.endingBuffett();
       if(s.money<=0) return this.endingDelivery("存款见底");
       if(s.age>=35) return this.endingDelivery("35 岁大限已到，仍未实现财务自由");
@@ -3078,6 +3164,234 @@ const Game = {
     };
     if(this._stockAnim){ const a=this._stockAnim; this._stockAnim=null; return this.assetCurve(a, proceed); }
     proceed();
+  },
+
+  // 传统车企：干满两年，燃油车寒冬→裁员→回老家送外卖
+  carLayoffEvent(logs){
+    const s=this.s;
+    this.eventSplash({emoji:"📉", title:"车企裁员", sub:"燃油车的黄昏", color:"#8b98a8", hold:2000}, ()=>{
+      D({loc:"🚗 上海 · 裁员通知", art:"factory", tw:true,
+        lines:[
+          (logs&&logs.length)?["env",logs.join("\n")]:["env","这一年，风声鹤唳。"],
+          ["hr","燃油车销量一年不如一年，公司降本增效……这是优化通知单，对不住了。",{big:true}],
+          ["you","干了两年，传统车企还是没扛过这波寒冬。回老家吧。","think"],
+        ],
+        choices:[{t:"🛵 收拾行李回老家", cls:"gold", f:()=>this.endingDelivery("传统车企裁员",`燃油车寒冬，传统车企一轮接一轮裁员。你干满两年还是被优化，攒下的钱不够在上海立足，只得回到${home()}。`)}]});
+    });
+  },
+
+  // 造车新势力：健康透支→生病住院→辞职→回老家送外卖 / 进北欧外企
+  newforceHospitalEvent(logs){
+    const s=this.s; const cost=rand(40000,90000);
+    s.money=Math.max(0,s.money-cost); s.health=clamp(s.health+rand(20,30),0,100); this.render();
+    this.eventSplash({emoji:"🏥", title:"积劳成疾·住院", sub:"新势力把人榨干了", color:"#ff5b5b", hold:2000}, ()=>{
+      D({loc:"🏥 上海 · 住院辞职", art:"shanghai", tw:true,
+        lines:[
+          (logs&&logs.length)?["env",logs.join("\n")]:["env","连轴转的一年。"],
+          ["doc","年轻人，长期 996+ 把身体彻底拖垮了，必须住院！再这么干，命都没了。",{big:true}],
+          ["env",`🏥 住院花了 ¥${fmt(cost)}，健康抢救回一些。出院后你递了辞呈。`],
+          ["you","钱是挣了点，可这命……不能再这么卖了。下一步往哪走？","think"],
+        ],
+        choices:[
+          {t:"🛵 回老家躺平送外卖", sub:"图个清闲·结束打拼", cls:"danger", f:()=>this.endingDelivery("新势力把身体榨干","你从造车新势力辞职，大病一场后看淡了一切，回到老家，跑起了外卖。")},
+          {t:"🌍 跳槽北欧外企", sub:"work-life balance · 异国机遇", cls:"gold", f:()=>this.enterNordic()},
+        ]});
+    });
+  },
+
+  /* ===================== 北欧外企支线 ===================== */
+  enterNordic(){
+    const s=this.s; s.job="nordic"; s.lineType="nordic"; s.nordicY=0;
+    s.costY=200000; s.incomeY=Math.round(650000*this.degreeMult());
+    this.mark(()=>this.enterNordic()); this.render();
+    this.transition({emoji:"🌍", title:"北欧外企", sub:`work-life balance · 年薪 ¥${fmt(s.incomeY)}`, color:"#4dd0e1"}, ()=>{
+      D({loc:"🌍 北欧外企 · 入职", art:"shanghai", tw:true,
+        lines:[
+          ["boss","Welcome! 我们北欧公司讲究工作生活平衡，准点下班，年假管够。",{big:true}],
+          ["you","总算不用拿命换钱了。在这儿稳一稳，攒钱冲财务自由。","think"],
+        ],
+        choices:[{t:"▶ 入职第一年", cls:"gold", f:()=>this.nordicAdvance()}]});
+    });
+  },
+  nordicAdvance(){
+    const s=this.s; s.nordicY++; s.age++;
+    s.money += s.incomeY; s.money=Math.max(0,s.money-s.costY);
+    const adrain=this.ageHealthDrain(); if(adrain) s.health=clamp(s.health-adrain,0,100);
+    s.health=clamp(s.health+rand(2,6),0,100); // 作息规律，略回血
+    this.render();
+    if(this.isBuffett()) return this.endingBuffett();
+    if(s.money<=0) return this.endingDelivery("北欧外企也没攒下钱");
+    // 第二年触发海外出差剧情
+    if(s.nordicY>=2 && !s.flags.nordicTrip){ s.flags.nordicTrip=true; return this.nordicTripIntro(); }
+    D({loc:`🌍 北欧外企 · 第${s.nordicY}年`, art:"shanghai",
+      lines:[["env",`年薪到账，作息规律健康回升。资产 ¥${fmt(s.money)}。`],["you","平稳的一年。","think"]],
+      choices:[{t:"⏭️ 推进一年", cls:"gold", f:()=>this.nordicAdvance()}]});
+  },
+  nordicTripIntro(){
+    const s=this.s;
+    this.mark(()=>this.nordicTripIntro());
+    // 出差前：若无甩棍，老板提醒买一根防身
+    if(!s.hasBaton){
+      const price=2000;
+      return D({loc:"🌍 北欧外企 · 出差前", art:"shanghai", tw:true,
+        lines:[
+          ["boss","下周派你去北欧总部出差。对了——那边偏僻，治安一般，要不要备根甩棍防身？用得上。",{big:true}],
+          ["you",`花 ¥${fmt(price)} 买根甩棍傍身……以防万一？`,"think"],
+        ],
+        choices:[
+          {t:`🥢 买根甩棍（¥${fmt(price)}）`, sub:"以防用得上", cls:"gold", f:()=>{ s.money=Math.max(0,s.money-price); s.hasBaton=true; this.render(); this.toast("入手·甩棍 🥢"); this.nordicTripCore(); }},
+          {t:"🙅 不买，轻装上阵", f:()=>this.nordicTripCore()},
+        ]});
+    }
+    this.nordicTripCore();
+  },
+  nordicTripCore(){
+    const s=this.s;
+    const choices=[
+      {t:"😶 不理他，挂电话", sub:"明哲保身·回上海辞职", f:()=>this.nordicIgnore()},
+    ];
+    if(s.hasBaton) choices.push({t:"🥢 甩棍伺候！", sub:"以暴制暴·70% 被报警", cls:"danger", f:()=>this.nordicBaton()});
+    this.eventSplash({emoji:"📞", title:"出差惊魂", sub:"同事失联·老板夺命连环call", color:"#ff7a3c", hold:1900}, ()=>{
+      D({loc:"🌍 北欧 · 出差惊魂", art:"shanghai", tw:true,
+        lines:[
+          ["env","出差北欧，同行的同事中途离奇失联，再没了音讯。你心里发毛。"],
+          ["boss","（电话又响了，第 18 个未接来电）人呢？！项目交付呢？！你给我马上回话！！",{big:true}],
+          ["you", s.hasBaton?"老板夺命连环call，烦得我火气直冒……手里这根甩棍都快攥出汗了。":"老板的电话一个接一个，吵得人头都要炸了。","think"],
+        ],
+        choices});
+    });
+  },
+  nordicIgnore(){
+    const s=this.s; s.costY=0; this.toCNY(); this.render();
+    this.endingSplash({emoji:"🌫️", title:"未完待续", sub:"OPEN END", color:"#8b98a8"}, ()=>{
+      D({loc:"🌫️ 结局 · 未完待续", art:"shanghai", tw:true,
+        lines:[
+          ["env","你把老板拉黑，撂下烂摊子飞回上海，递了辞职信。同事失联的真相、北欧的那桩蹊跷，从此再没人提起。"],
+          ["you","有些事，不知道结局，也许才是最好的结局。","think"],
+          ["end","【结局：未完待续】🌫️\n你转身离开，故事在这里按下暂停键……（TO BE CONTINUED）"],
+        ],
+        extra:endingStats(s),
+        choices:this._badEndChoices()});
+    });
+  },
+  nordicBaton(){
+    const s=this.s;
+    if(Math.random()<0.70) return this.endingPrison();
+    // 侥幸没被报警
+    s.costY=0; this.toCNY(); this.render();
+    this.endingSplash({emoji:"🌫️", title:"未完待续", sub:"OPEN END", color:"#8b98a8"}, ()=>{
+      D({loc:"🌫️ 结局 · 未完待续", art:"shanghai", tw:true,
+        lines:[
+          ["env","你抄起甩棍把老板的车窗砸了个稀烂，发泄完扬长而去。对方没敢报警，这事儿不了了之。"],
+          ["you","痛快是痛快了……但往后的路，谁也说不准。","think"],
+          ["end","【结局：未完待续】🌫️\n你消失在北欧的风雪里，故事戛然而止……（TO BE CONTINUED）"],
+        ],
+        extra:endingStats(s),
+        choices:this._badEndChoices()});
+    });
+  },
+  endingPrison(){
+    this._scene="endingPrison"; const s=this.s; s.costY=0; this.toCNY(); this.render();
+    this.endingSplash({emoji:"⛓️", title:"牢底坐穿", sub:"BAD END", color:"#888888"}, ()=>{
+      D({loc:"⛓️ 结局 · 牢底坐穿", art:"factory", tw:true,
+        lines:[
+          ["env","甩棍抡下去的那一刻很解气，可警笛随即响起。异国他乡，故意伤害——你被当场带走。"],
+          ["you","冲动是魔鬼……这一棍，把后半辈子都搭进去了。","think"],
+          ["end","【结局：牢底坐穿】⛓️\n铁窗之内，时间凝固。冲动的代价，太沉了。"],
+        ],
+        extra:endingStats(s),
+        choices:this._badEndChoices()});
+    });
+  },
+
+  /* ===================== 亚琛工大博士（学术路线·发论文毕业） ===================== */
+  enterAachen(){
+    const s=this.s; s.school="亚琛工业大学"; s.lineType="aachen"; s.gpaSys=null;
+    this.moveCountry("EUR");
+    const fee=this.germanAppFee(); s.money=Math.max(0,s.money-fee);
+    s.papers=0; s.phdYear=0; s.costY=0; s.incomeY=0;
+    if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
+    this.mark(()=>this.enterAachen()); this.render();
+    this.transition({emoji:"🎓", title:"亚琛工业大学", sub:"博士·学术远征", color:"#bc8cff"}, ()=>{
+      D({loc:"🇩🇪 亚琛 · 博士入学", art:"germany", tw:true,
+        lines:[
+          ["env",`🪪 获得【亚琛工业大学博士在读】！缴纳德国院校申请费 €${fmt(fee)}。`],
+          ["prof2","控制论博士，五年制。这里没有考试，只看论文——发满 5 篇高水平论文即可毕业。有博士津贴，饿不着你。",{big:true}],
+          ["you","五年，五篇论文。读出来就是学界泰斗——冲了！","think"],
+        ],
+        choices:[{t:"🔬 开始博士生涯", cls:"gold", f:()=>this.aachenRound()}]});
+    });
+  },
+  aachenRound(){
+    const s=this.s; this._scene="aachenRound"; this.mark(()=>this.aachenRound());
+    if(s.papers>=5) return this.endingScholarLord();
+    D({loc:`🔬 亚琛博士 · 第${s.phdYear}年`, art:"germany",
+      lines:[
+        ["prof2",`论文进度 ${s.papers}/5　博士第 ${s.phdYear} 年。继续做研究吧——咱们这儿，论文就是一切。`,{big:true}],
+        ["you", s.phdYear>=4?"五年大限将近，得抓紧多发论文了！":"科研要坐得住冷板凳。","think"]],
+      choices:[
+        {t:"🔬 全力科研（推进一年）", sub:"高产出·熬人伤身", cls:"gold", f:()=>this.aachenResolve(true)},
+        {t:"😌 张弛有度（推进一年）", sub:"产出一般·相对养身", f:()=>this.aachenResolve(false)},
+      ]});
+  },
+  aachenResolve(hard){
+    const s=this.s; const E=this.econ(); s.phdYear++; s.age++;
+    const logs=[];
+    const stipend=Math.round(E.live*12*0.85);          // 博士津贴：基本够生活
+    s.money += stipend; s.money=Math.max(0,s.money - E.live*12);
+    logs.push(`🎓 博士津贴 +€${fmt(stipend)}，生活开销 -€${fmt(E.live*12)}`);
+    const drain=(hard?rand(10,18):rand(3,8))+this.ageHealthDrain();
+    s.health=clamp(s.health-drain,0,100); logs.push(`${hard?"🔥 高强度科研":"😌 张弛有度"}，健康 -${drain}`);
+    // 论文产出：努力 + 学习力
+    const lvl=(s.xuexi||0)/200;
+    let pubs=0; if(Math.random()<(hard?0.9:0.5)+lvl) pubs++; if(hard && Math.random()<0.35+lvl) pubs++;
+    s.papers+=pubs;
+    logs.push(pubs>0?`📄 论文中稿 +${pubs}（累计 ${s.papers}/5）`:"📄 这一年投稿全被拒，颗粒无收……");
+    if(hard) this.addStat("xuexi", rand(2,5));
+    this.render();
+    const proceed=()=>{
+      if(s.health<=0) return this.endingDeath();
+      if(s.papers>=5) return this.endingScholarLord();
+      if(s.phdYear>=8){ // 延毕过久 → 博士退学兜底
+        return D({loc:"🔬 亚琛博士 · 延毕", art:"germany", tw:true,
+          lines:[["prof2","八年了还没发够论文……博士读到头了，我也没办法。",{big:true}],["you","学术这条路，终究没能走到底。","think"]],
+          choices:[{t:"🌃 回上海找份工作", cls:"gold", f:()=>this.enterShanghai("car")}]});
+      }
+      // 博士第二年：结婚（合肥老兄弟来贺）
+      if(s.phdYear>=2 && !s.flags.phdMarried){ s.flags.phdMarried=true; return this.phdMarriageEvent(logs); }
+      D({loc:`🔬 亚琛博士 · 第${s.phdYear}年小结`, lines:[["env",logs.join("\n")]],
+        choices:[{t:"▶ 继续", cls:"gold", f:()=>this.aachenRound()}]});
+    };
+    if(s.health<=15 && !s.hospWarned) return this.hospitalEvent(proceed);
+    proceed();
+  },
+  phdMarriageEvent(logs){
+    const s=this.s; s.gfFavor=clamp((s.gfFavor||60)+rand(8,15),0,100); this.render();
+    this.eventSplash({emoji:"💒", title:"博士第二年 · 结婚", sub:"学术伉俪喜结连理", color:"#ff8ecb", hold:2000}, ()=>{
+      D({loc:"💒 亚琛 · 婚礼", art:"germany", tw:true,
+        lines:[
+          (logs&&logs.length)?["env",logs.join("\n")]:["env","平静的一年。"],
+          ["env","读博第二年，你和女友在亚琛办了婚礼，特地把合肥的老兄弟们都请了过来。"],
+          ["xuzi","哥们儿结婚啦！我从合肥打飞的过来贺喜，必须随个大红包！",{big:true}],
+          ["you","成家立业，人生圆满了一半。论文，继续冲！","think"],
+        ],
+        choices:[{t:"▶ 继续科研", cls:"gold", f:()=>this.aachenRound()}]});
+    });
+  },
+  endingScholarLord(){
+    this._scene="endingScholarLord"; const s=this.s;
+    if(!s.diplomas.includes("亚琛工业大学博士")) s.diplomas.push("亚琛工业大学博士");
+    s.costY=0; this.toCNY(); this.render();
+    this.endingSplash({emoji:"🎓", title:"学阀 · 衣锦还乡", sub:"PERFECT END", color:"#ffcc4d"}, ()=>{
+      D({loc:"🎓 结局 · 学阀世家", art:"shanghai", tw:true,
+        lines:[
+          ["env","五篇高水平论文傍身，你戴上博士帽，载誉归国。家乡的顶尖学府以最高规格聘你为讲席教授。"],
+          s.hasGf?["gf","我们是真正的学术伉俪啦，桃李满天下～",{big:true}]:["you","十年寒窗，终成正果。",{big:true}],
+          ["end","【完美结局：学阀世家·衣锦还乡】🎓\n从厂区少年到学术泰斗，著作等身、桃李天下，光宗耀祖。"],
+        ],
+        extra:endingStats(s),
+        choices:[{t:"🔄 再来一局", cls:"gold", f:()=>this.confirmRestart()}]});
+    });
   },
 
   // 工作第一年：女友赴英留学，独居靠熊猫外卖续命（额外开支）
@@ -3235,7 +3549,7 @@ const Game = {
              ["you","毕业了。回上海，还是留伦敦闯虚拟币圈？","think"]],
       choices:[
         {t:"🪙 进伦敦虚拟币公司实习", sub:"£5000/月 · 需平衡工作与感情", cls:"gold", f:()=>this.startIntern()},
-        {t:"🌃 重回上海发展", sub:"上海支线", f:()=>this.enterShanghai(s.major==="ad"?"quant":"car")}
+        {t:"🌃 重回上海发展", sub:"上海支线·按专业选岗", f:()=>(s.major==="ad"||s.major==="ev")?this.shanghaiJobMenu():this.enterShanghai("car")}
       ]});
   },
   startIntern(){
@@ -3700,6 +4014,7 @@ const CHARS={
   yong: {name:"勇哥",    face:"💪", side:"left",  color:"#ff7a3c"},
   kong: {name:"孔老师",  face:"🧑‍🏫", side:"left",  color:"#4dd0e1"},
   garf: {name:"加菲猫",  face:"🐱", side:"left",  color:"#ffcc4d"},
+  kubi: {name:"小苦逼",  face:"😩", side:"left",  color:"#8b98a8"},
   jenny:{name:"杰尼龟",  face:"🐢", side:"left",  color:"#3fb950"},
   zhao: {name:"赵老师",  face:"👨‍🏫", side:"left",  color:"#ffcc4d"},
   boss: {name:"老板",    face:"🤵", side:"left",  color:"#bc8cff"},
@@ -3711,7 +4026,8 @@ const PEOPLE={
   feizi:{nm:"非子", cost:36, get:{wuli:12},    skill:"少林护体：武力值大增", intro:"少林俗家弟子，练过。以后谁惹你，报我名号。"},
   yong: {nm:"勇哥", cost:32, get:{},          skill:"未知", intro:"叫我勇哥。给你提个醒——离那个加菲猫远点，那货负能量爆棚，听他唠嗑能给你整抑郁了。"},
   kong: {nm:"孔老师",cost:32, get:{renmai:14}, skill:"人脉引荐：结交其他兄弟一律打折", intro:"我孔某人朋友遍天下，往后给你多引荐人脉——交了我，再结交别的兄弟都给你打折。"},
-  garf: {nm:"加菲猫",cost:20, get:{eq:6},      skill:"未知", intro:"我觉得星巴克也不贵啊，要不要一起约跑步？"},
+  garf: {nm:"加菲猫",cost:20, get:{eq:6},      skill:"未知", intro:"（堵在宿舍门口）就你们也喝不起星巴克吧？我天天一杯，要不要我请你……开个玩笑。哎你别走啊，陪我唠唠！"},
+  kubi: {nm:"小苦逼",cost:16, get:{},          skill:"未知", intro:"唉……活着真没意思，干啥啥不行，倒霉的事儿全让我赶上了。你说人活着到底图个啥呢……"},
   jenny:{nm:"杰尼龟",cost:32, get:{xuexi:14},  skill:"学霸笔记：学习力↑、考试成绩与通过率↑", intro:"考试范围我都划好了，跟着我稳过。"},
   zhao: {nm:"赵老师",cost:34, get:{},          skill:"炒股入门：解锁「投资理财」（仅未选自动驾驶时有效）", intro:"我炒股二十年，K线图比脸还熟。没学过自动驾驶？没事，跟我学炒股，照样钱生钱。"},
 };
