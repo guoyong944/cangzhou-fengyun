@@ -56,6 +56,10 @@
   .stat.bg-green{background:rgba(63,185,80,.16); border-color:#2e6b38;}
   .stat.bg-yellow{background:rgba(255,204,77,.14); border-color:#6b5a1a;}
   .stat.bg-red{background:rgba(255,91,91,.16); border-color:#6b2a2a;}
+  /* 健康过低：整格红色闪烁预警 */
+  .stat.warnflash{background:rgba(255,91,91,.22); border-color:var(--red);
+    animation:statFlash 1.1s ease-in-out infinite;}
+  @keyframes statFlash{0%,100%{box-shadow:0 0 0 1px rgba(255,91,91,.5);}50%{box-shadow:0 0 0 1px var(--red),0 0 12px rgba(255,91,91,.8); background:rgba(255,91,91,.4);}}
   .bar{height:3px; background:#000; border-radius:3px; margin-top:2px; overflow:hidden;}
   .bar > i{display:block; height:100%; border-radius:3px; transition:width .4s;}
 
@@ -394,7 +398,7 @@ const Game = {
       hasCardCounter:false, sharkAge:0,
       broLoan:0, broLoanFrom:null,
       lastAlloc:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
-      actCount:0,
+      actCount:0, gfTimeLock:0,
     };
   },
 
@@ -617,7 +621,7 @@ const Game = {
       ["现金", cursym()+fmt(s.money), "", "money", ""],
     ];
     if(debt>0) st.push(["债务", cursym()+fmt(debt), "", null, "bg-red"]);
-    st.push(["健康", s.health, bar(s.health,100,"var(--green)"), "health", ""]);
+    st.push(["健康", s.health, bar(s.health, 100, s.health<60?"var(--red)":"var(--green)"), "health", s.health<60?"warnflash":""]);
     // 兄弟义气紧挨情商/女友亲密度
     st.push(["兄弟义气", s.bro, bar(s.bro,100,"var(--gold)"), "bro", ""]);
     st.push(this.partnered() ? ["女友亲密度", s.gfFavor, bar(s.gfFavor,100,"var(--pink)"), "gfFavor", ""]
@@ -1153,6 +1157,8 @@ const Game = {
   studyYear(){
     const s=this.s;
     const resuming=this._resuming; this._resuming=false; // 续档回到本学期：不重复推进学期数
+    // 已修满学分 → 直接毕业，绝不再开新学期（修复：达标后又被带进下学期，含读档场景）
+    if(this.studying() && s.creditsEarned>=s.creditGoal) return this.graduate();
     // 情商达标且单身 → 每学期开学询问是否找对象（德国读书期改用「尝试脱单」主动玩法，这里不再弹）
     if(!resuming && !this.germanStudy() && !s.hasGf && (s.eq||0)>=45 && s.gfSkipSem!==s.yearInSchool+1){
       return this.gfUnlock();
@@ -1204,13 +1210,18 @@ const Game = {
     const ek = careerOK ? "intern" : "work";
     const ekNm = careerOK ? "实习" : "打工";
     const lockedWork = this._budgetWork||0;
+    // 富姐女友：固定锁死的维系时间
+    let fujieLock=0;
+    if(s.hasGf && s.gfType==="fujie"){ if(!s.gfTimeLock) s.gfTimeLock=rand(15,20); fujieLock=s.gfTimeLock; }
     const cats=[
       {k:"study", nm:"学习", sub:"提升通过率·成绩"},
     ];
     // 事业度<20 时，「无偿实习」仍是一项可分配时间（攒事业度、无收入）；收入型的「打工」已锁进预算
     if(!careerOK) cats.push({k:"intern", nm:"实习", sub:"无偿积累(事业度<20)"});
-    cats.push({k:"friend", nm:"交友", sub:"兄弟义气"},
-      s.hasGf ? {k:"flirt", nm:"维系女友", sub:"投入不足→好感降、闹分手"} : {k:"flirt", nm:"把妹", sub:"情商·脱单(看情商)"});
+    cats.push({k:"friend", nm:"交友", sub:"兄弟义气"});
+    // 富姐：维系时间锁死，不再可调；其余女友/单身正常给滑块
+    if(!(s.hasGf && s.gfType==="fujie"))
+      cats.push(s.hasGf ? {k:"flirt", nm:"维系女友", sub:"投入不足→好感降、闹分手"} : {k:"flirt", nm:"把妹", sub:"情商·脱单(看情商)"});
     const la = s.lastAlloc || {study:40,intern:0,work:0,friend:20,flirt:0};
     const init={study:la.study||0,intern:la.intern||0,work:la.work||0,friend:la.friend||0,flirt:la.flirt||0};
     const E=this.econ();
@@ -1229,6 +1240,9 @@ const Game = {
         <div class="row"><div class="nm">${ekNm}<small>已在预算锁定</small></div>
           <div style="flex:1;color:var(--dim);font-size:12px;padding-left:2px">🔒 占用 <b style="color:var(--gold)">${lockedWork}</b> 点精力（回预算规划可改）</div>
           <div class="amt">${lockedWork}</div></div>
+        ${fujieLock?`<div class="row"><div class="nm">维系富姐<small>固定支出·锁死</small></div>
+          <div style="flex:1;color:var(--dim);font-size:12px;padding-left:2px">🔒 富姐难伺候，固定占用 <b style="color:var(--pink)">${fujieLock}</b> 点精力</div>
+          <div class="amt">${fujieLock}</div></div>`:""}
         ${cats.map(c=>`<div class="row">
           <div class="nm">${c.nm}<small>${c.sub}</small></div>
           <input type="range" min="0" max="100" step="5" value="${init[c.k]}" data-k="${c.k}" oninput="Game._allocSync()">
@@ -1335,7 +1349,10 @@ const Game = {
   _readAlloc(){ const a={study:0,intern:0,work:0,friend:0,flirt:0};
     document.querySelectorAll('#alloc input').forEach(i=>a[i.dataset.k]=+i.value);
     // 收入型时间（实习/打工）在预算界面锁定，回填进来
-    const ek=this.s.career>=20?"intern":"work"; a[ek]=this._budgetWork||0; return a; },
+    const ek=this.s.career>=20?"intern":"work"; a[ek]=this._budgetWork||0;
+    // 富姐：维系时间锁死，回填为 flirt
+    if(this.s.hasGf && this.s.gfType==="fujie") a.flirt=this.s.gfTimeLock||0;
+    return a; },
   _readMoney(){ const m={friend:0,flirt:0,repay:0};
     document.querySelectorAll('input[data-m]').forEach(i=>m[i.dataset.m]=+i.value);
     const rn=document.getElementById("repayNum");
@@ -1361,8 +1378,9 @@ const Game = {
     let used=0;
     document.querySelectorAll('#alloc input').forEach(i=>{ used+=+i.value; document.getElementById("amt_"+i.dataset.k).textContent=i.value; });
     const work=this._budgetWork||0;            // 预算界面锁定的实习/打工时间
-    const actE=this.activityEnergy()+this.courtEnergy(); const tot=used+work+actE;
-    const parts=[]; if(work) parts.push(`${work}(${this.s.career>=20?"实习":"打工"})`); if(actE) parts.push(`${actE}(活动/脱单)`);
+    const fuj=(this.s.hasGf&&this.s.gfType==="fujie")?(this.s.gfTimeLock||0):0;  // 富姐锁死的维系时间
+    const actE=this.activityEnergy()+this.courtEnergy(); const tot=used+work+fuj+actE;
+    const parts=[]; if(work) parts.push(`${work}(${this.s.career>=20?"实习":"打工"})`); if(fuj) parts.push(`${fuj}(富姐)`); if(actE) parts.push(`${actE}(活动/脱单)`);
     document.getElementById("poolUsed").textContent = parts.length? `${used}+${parts.join("+")}=${tot}` : used;
     const note=document.getElementById("sleepNote");
     const cap=this.energyCap();
@@ -1635,8 +1653,8 @@ const Game = {
       s.health=clamp(s.health-pain,0,100); s.money=Math.max(0,s.money-cost);
       logs.push(`🦷 随机事件·智齿发作！健康 -${pain}，拔牙花了 ${E.sym}${fmt(cost)}`);
     }
-    // ---- 健康过低：小病小灾不断，额外破费（住院级危机另见下方判定）----
-    if(s.health<40 && Math.random() < (40-s.health)/55){
+    // ---- 健康过低：小病小灾不断，额外破费（60 以下就开始亮红灯，越低越频繁）----
+    if(s.health<60 && Math.random() < (60-s.health)/70){
       const pain=rand(5,15), cost=rand(E.tooth[1], E.tooth[1]*3);
       s.health=clamp(s.health-pain,0,100); s.money=Math.max(0,s.money-cost);
       logs.push(`🤒 身体亮红灯！小病小灾不断，健康 -${pain}，吃药看病 ${E.sym}${fmt(cost)}`);
@@ -2104,6 +2122,8 @@ const Game = {
         {t:"↩ 算了", f:()=>this.cantAfford(credits, yrLabel, makeup)}
       ]});
   },
+  // 搏一搏下注上限（投资股票无上限，但赌博必须有封顶，防止一把梭哈输光家底）
+  gambleCap(){ return this.s.cur==="EUR"?10000:(this.s.cur==="GBP"?10000:100000); },
   gambleMenu(credits, yrLabel, makeup){
     const s=this.s;
     const games=[
@@ -2121,7 +2141,7 @@ const Game = {
   _gbRangeSync(){ const r=document.getElementById("gbAmt"), n=document.getElementById("gbNum"); if(r&&n) n.value=r.value; },
   _gbNumSync(){ const r=document.getElementById("gbAmt"), n=document.getElementById("gbNum"); if(r&&n){ const v=Math.round(+n.value||0); r.value=clamp(v,+r.min,+r.max); } },
   gamblePlay(g, credits, yrLabel, makeup){
-    const s=this.s; const max=s.money;
+    const s=this.s; const cap=this.gambleCap(); const max=Math.min(s.money, cap);
     const isDDZ = g.k==="ddz";
     const hasCC = isDDZ && s.hasCardCounter;
     const winP = clamp(g.win + (hasCC?0.18:0), 0, 0.95);   // 斗地主 + 记牌器：胜率 +18%
@@ -2160,7 +2180,7 @@ const Game = {
             oninput="Game._gbNumSync()"><small style="font-size:16px;color:var(--dim)"> ${cursym()}</small></div>
         <input type="range" id="gbAmt" min="0" max="${max}" step="${step}" value="${def}"
           oninput="Game._gbRangeSync()">
-        <div class="hint">手头 ${cursym()}${fmt(max)} · 当前胜率 ${Math.round(winP*100)}%</div>
+        <div class="hint">手头 ${cursym()}${fmt(s.money)} · 单注上限 ${cursym()}${fmt(cap)} · 当前胜率 ${Math.round(winP*100)}%</div>
       </div>`,
       choices});
   },
@@ -2201,6 +2221,18 @@ const Game = {
         lines:[["env","你从不伦瑞克退学了。"],["you","下一步往哪走？","think"]],
         choices:[
           {t:"🌃 去上海闯荡", sub:"上海支线 · 进车企", cls:"gold", f:()=>this.enterShanghai("car")},
+          goCangzhou
+        ]});
+    }
+    if(lt==="london"){
+      const job=this.shanghaiJob();
+      return D({loc:"伦敦UCL · 退学", tw:true,
+        lines:[["env","你从 UCL 退学了，泰晤士河的风冷得刺骨。"],
+               ["you","书读不下去了……回上海，再拼一把？","think"]],
+        choices:[
+          {t: job==="quant"?"🌃 回上海 · 进量化机构":"🌃 回上海 · 进车企",
+           sub: job==="quant"?"没拿到 UCL 文凭，收入比毕业生低":"燃油车企",
+           cls:"gold", f:()=>{ this.moveCountry("CNY"); this.enterShanghai(job); }},
           goCangzhou
         ]});
     }
@@ -2506,7 +2538,7 @@ const Game = {
     const targets=[{k:"meinu",nm:"💃 美女",d:"花钱多 → 收益健康"},{k:"fujie",nm:"💎 富姐",d:"费时间 → 零花钱/借钱"},{k:"xueba",nm:"🤓 学霸",d:"均衡 → 提升成绩"}];
     const choices=targets.map(t=> blocked.includes(t.k)
       ? {t:`🚫 ${t.nm}（已拉黑）`, sub:"无法再攻略", f:()=>this.courtTargetMenu(back)}
-      : {t:t.nm, sub:t.d, f:()=>this.courtBreakfast(t.k, back)});
+      : {t:t.nm, sub:t.d, f:()=> t.k==="meinu" ? this.courtMeinu(back) : this.courtBreakfast(t.k, back)});
     choices.push({t:"↩ 返回", f:()=>this.courtMenu(back)});
     D({loc:"📚 图书馆搭讪 · 选对象", lines:[["you","图书馆里，谁能成为我的攻略对象？情商够不够，学期末见真章。","think"]], choices});
   },
@@ -2519,8 +2551,30 @@ const Game = {
         {t:"↩ 返回", f:()=>this.courtTargetMenu(back)},
       ]});
   },
+  // 攻略「美女」：买外套立刻在一起，否则按情商随缘（学期末结算，可能被拉黑）
+  courtMeinu(back){
+    const s=this.s; const E=this.econ(); const coat = s.cur==="EUR"?5000:(s.cur==="GBP"?4500:40000);
+    D({loc:"💃 攻略 · 美女", tw:true,
+      lines:[["meinu",`我看上了一件不错的外套，只要 ${E.sym}${fmt(coat)} 就可以～`,{big:true}],
+             ["you","花这笔钱当场拿下，还是省着点、靠缘分赌一把？","think"]],
+      choices:[
+        {t:`👗 买外套（${E.sym}${fmt(coat)}），立刻在一起`, sub:"豪掷千金 · 当场脱单", cls:"gold", f:()=>{
+          if(s.money<coat){ this.toast("钱不够买外套 💸"); return; }
+          s.money-=coat; s.courtPlan=null; this._becomeGf("meinu"); this.render();
+          this.eventSplash({emoji:"💖", title:"脱单成功", sub:"一件外套，抱得美人归", color:"#ff8ecb"}, ()=>{
+            D({loc:"💖 脱单成功", tw:true,
+              lines:[["meinu","谢谢你的外套，以后我就是你女朋友啦～",{big:true}],["env","💕 你和美女在一起了！面板已切换为「女友亲密度」。"]],
+              choices:[{t:"▶ 继续", cls:"gold", f:back}]});
+          });
+        }},
+        {t:"🎲 不买，靠缘分（学期末看情商）", sub:"按情商随机成败 · 情商过低会被拉黑", f:()=>{ s.courtPlan={mode:"library",target:"meinu",breakfast:false}; this.toast("已设：图书馆搭讪 · 美女（随缘）"); back(); }},
+        {t:"↩ 返回", f:()=>this.courtTargetMenu(back)},
+      ]});
+  },
   _becomeGf(type){
     const s=this.s; s.hasGf=true; s.gfType=type; s.gfFavor=type==="net"?72:60; s.gfWarned=false; s.gfOrigin={cur:s.cur, line:s.lineType};
+    // 富姐：之后每学期固定占用 15–20 点时间维系（在时间界面锁死）
+    s.gfTimeLock = type==="fujie" ? rand(15,20) : 0;
   },
   // 学期末公布脱单进度（全屏动画）
   courtResultEvent(info, next){
@@ -2610,8 +2664,11 @@ const Game = {
     // 被拉黑的攻略对象
     if((s.blocked||[]).length) lines.push(["env",`🚫 已拉黑：${s.blocked.map(k=>({meinu:"美女",fujie:"富姐",xueba:"学霸"}[k]||k)).join("、")}（无法再攻略）`]);
     const choices=[];
-    if(s.hasGf) choices.push({t:"💔 主动分手", cls:"danger", f:()=>this.breakUp(
-      {sub:"你主动结束了这段关系", lines:[["you","对不起，我们还是分开吧。","think"],["env","💔 你主动提出了分手。面板已切回「情商」。"]]}, back)});
+    if(s.hasGf){
+      choices.push({t:"🎁 给女友送礼物", sub:`自定义金额 · 增加亲密度（现 ${s.gfFavor}）`, cls:"gold", f:()=>this.giftGf(back)});
+      choices.push({t:"💔 主动分手", cls:"danger", f:()=>this.breakUp(
+        {sub:"你主动结束了这段关系", lines:[["you","对不起，我们还是分开吧。","think"],["env","💔 你主动提出了分手。面板已切回「情商」。"]]}, back)});
+    }
     ids.forEach(id=>{
       const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
       choices.push({t:`🍻 请 ${nm} 吃饭（${E.sym}${fmt(treat)}）`, sub:`维系亲密度（现 ${fr.fav||0}）`, f:()=>{
@@ -2629,12 +2686,40 @@ const Game = {
     const owed=(s.broLoanFrom===id)?(s.broLoan||0):0;
     delete s.friends[id];
     if(s.broLoanFrom===id){ s.broLoan=0; s.broLoanFrom=null; } // 绝交：债务一笔勾销，但义气受损
-    s.bro=clamp(s.bro-rand(6,12),0,100); this.render();
+    s.bro=clamp(s.bro-rand(6,12),0,100);
+    // 与加菲猫断交：勇哥（反猫先锋）大为赞许，好感大涨
+    const extra=[]; let yongUp=0;
+    if(id==="garf" && s.friends.yong){ yongUp=rand(10,18); s.friends.yong.fav=clamp((s.friends.yong.fav||0)+yongUp,0,100);
+      this.addStat("bro",rand(2,5)); extra.push(["yong","早该跟那负能量货色掰了！这事儿办得地道，哥服你。",{big:true}],["env",`👍 勇哥对你刮目相看，勇哥好感度 +${yongUp}。`]); }
+    this.render();
     this.eventSplash({emoji:"✂️", title:"兄弟决裂", sub:`你与 ${nm} 割袍断义`, color:"#ff5b5b"}, ()=>{
       D({loc:"✂️ 兄弟决裂", tw:true,
-        lines:[[id,"行，从此咱俩一刀两断！",{big:true}],["env",`💔 你与 ${nm} 绝交，兄弟义气受损。${owed?`（欠他的 ${cursym()}${fmt(owed)} 也算清了，但情分没了）`:""}`],["you","道不同，不相为谋。","think"]],
+        lines:[[id,"行，从此咱俩一刀两断！",{big:true}],["env",`💔 你与 ${nm} 绝交，兄弟义气受损。${owed?`（欠他的 ${cursym()}${fmt(owed)} 也算清了，但情分没了）`:""}`], ...extra, ["you","道不同，不相为谋。","think"]],
         choices:[{t:"↩ 返回", cls:"gold", f:back}]});
     });
+  },
+
+  // 给女友送礼物：自定义金额，增加亲密度（边际递减）
+  giftGf(back){
+    const s=this.s; const E=this.econ(); const sym=cursym(); const max=s.money;
+    const def=Math.min(max, E.socUnit*2);
+    D({loc:"🎁 给女友送礼物", tw:true,
+      lines:[["gf","哎呀，你也太有心了吧～",{big:true}],["you",`手头 ${sym}${fmt(max)}。想花多少哄她开心？花得越多，亲密度涨得越多。`,"think"]],
+      extra:`<div class="stockbox"><input type="number" id="giftAmt" value="${def}" min="0" max="${max}" inputmode="numeric" style="width:160px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:26px;text-align:center;padding:6px"><div class="hint">手头 ${sym}${fmt(max)}</div></div>`,
+      choices:[
+        {t:"🎁 送出礼物", cls:"gold", f:()=>{
+          const amt=clamp(Math.round(+(document.getElementById("giftAmt")||{}).value||0),0,max);
+          if(amt<=0){ this.toast("金额要大于 0"); return; }
+          s.money-=amt;
+          const up=this.addStat("gfFavor", clamp(Math.round(amt/E.socUnit*3)+rand(1,4),1,35));
+          this.render();
+          this.eventSplash({emoji:"💝", title:"礼物已送达", sub:`女友亲密度 +${up}`, color:"#ff8ecb", hold:1500}, ()=>{
+            if(this.isBuffett()) return this.endingBuffett();
+            this.contactsPanel(back);
+          });
+        }},
+        {t:"↩ 返回", f:()=>this.contactsPanel(back)},
+      ]});
   },
 
   // 选了火锅/烧烤后，先决定怎么备菜（风险活动）
@@ -2800,14 +2885,16 @@ const Game = {
     this.moveCountry("CNY");
     s.job=job; s.lineType="shanghai"; s.shYears=0;
     s.costY=200000;
-    s.incomeY = job==="quant" ? 1000000 : 300000;
+    // 收入与毕业证数量挂钩（毕业证越多收入越高；UCL 退学者毕业证少，收入自然偏低）
+    const base = job==="quant" ? 1000000 : 300000;
+    s.incomeY = Math.round(base * this.degreeMult());
     this.render();
-    this.transition({emoji:"🌃", title:"上海 · 闯荡", sub: job==="quant"?"量化机构 · 年薪百万":"车企 · 入职", color:"#bc8cff"}, ()=>{
+    this.transition({emoji:"🌃", title:"上海 · 闯荡", sub: job==="quant"?`量化机构 · 年薪 ¥${fmt(s.incomeY)}`:`车企 · 年薪 ¥${fmt(s.incomeY)}`, color:"#bc8cff"}, ()=>{
       D({loc:"🌃 上海 · 入职", art:"shanghai", tw:true,
         lines:[
-          ["env","回到上海。基础生活成本 ¥20万/年。"],
+          ["env",`回到上海。基础生活成本 ¥20万/年。年薪 ¥${fmt(s.incomeY)}（与毕业证数量挂钩，共 ${s.diplomas.length} 张）。`],
           job==="quant"
-            ? ["hr2","欢迎加入量化机构！年薪百万，但节奏极猛——注意身体。",{big:true}]
+            ? ["hr2","欢迎加入量化机构！收入可观，但节奏极猛——注意身体。",{big:true}]
             : ["hr","欢迎进车企！收入稳定，前景嘛……且行且看吧。",{big:true}],
           ["you","在魔都站稳脚跟，目标——财务自由。","think"],
         ],
@@ -2815,7 +2902,15 @@ const Game = {
     });
   },
 
-  isBuffett(){ const s=this.s; return (s.hasGf && s.money>=5000000) || s.money>=10000000; },
+  // 获胜条件（衣锦还乡）：中国 单身¥1000万 / 有女友¥500万；英国 单身£200万 / 有女友£100万
+  isBuffett(){ const s=this.s;
+    if(s.cur==="GBP") return (s.hasGf && s.money>=1000000) || s.money>=2000000;
+    return (s.hasGf && s.money>=5000000) || s.money>=10000000;
+  },
+  // 工作收入与毕业证数量挂钩：每张毕业证 +20%
+  degreeMult(){ return 1 + 0.2*(this.s.diplomas.length||0); },
+  // 上海岗位：只有斯图加特「自动驾驶」方向才解锁量化机构，否则只能进车企
+  shanghaiJob(){ return this.s.major==="ad" ? "quant" : "car"; },
 
   shanghaiHub(){
     this._scene="shanghaiHub";
@@ -3025,8 +3120,8 @@ const Game = {
       ]});
   },
   startIntern(){
-    const s=this.s; s.internProg=0; s.internSalary=5000; s.internRegular=false;
-    s.costY=24000; s.incomeY=5000*12;
+    const s=this.s; s.internProg=0; s.internSalary=Math.round(5000*this.degreeMult()); s.internRegular=false;
+    s.costY=24000; s.incomeY=s.internSalary*12;
     D({loc:"🪙 伦敦虚拟币公司 · 实习", tw:true,
       lines:[["boss","欢迎来实习！转正了工资翻倍，好好表现。",{big:true}],
              ["you","work-life balance……工作多了能转正，可她会不高兴。","think"]],
@@ -3070,6 +3165,7 @@ const Game = {
   _internSummary(inc){
     const s=this.s;
     if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
+    if(this.isBuffett()) return this.endingBuffett();    // 实习期间也可能达成英国获胜线
     const choices=[];
     if(s.internRegular) choices.push({t:"🔬 进入正式研究员生活", sub:"分配 工作/社交/女友/健身 + 理财", cls:"gold", f:()=>this.researcherRound()});
     else choices.push({t:"▶ 继续下一阶段", f:()=>this.internRound()});
@@ -3080,7 +3176,9 @@ const Game = {
 
   /* ===================== 正式研究员：四向时间 + 理财 ===================== */
   researcherRound(){
-    this._scene="researcherRound"; const s=this.s; const sym=cursym();
+    const s=this.s;
+    if(this.isBuffett()) return this.endingBuffett();   // 达成英国获胜线 → 立刻衣锦还乡
+    this._scene="researcherRound"; const sym=cursym();
     const cats=[{k:"work",nm:"工作",sub:"加薪/年终奖"},{k:"social",nm:"社交",sub:"兄弟义气/人脉"},{k:"love",nm:"女友",sub:"维系亲密度"},{k:"fit",nm:"健身",sub:"恢复健康·抗衰老"}];
     const init=s.lastResearch||{work:40,social:20,love:20,fit:20};
     const invTxt = s.researchInvest ? (s.researchInvest.type==="nasdaq"?`定投纳指 ${sym}${fmt(s.researchInvest.amt)}`:(s.researchInvest.type==="crypto"?`炒币 ${sym}${fmt(s.researchInvest.amt)}`:"已搏一搏")) : "未选";
@@ -3129,9 +3227,9 @@ const Game = {
       choices: games.map(g=>({t:g.nm, sub:g.d, f:()=>this.researcherGamblePlay(g)})).concat([{t:"↩ 返回", f:()=>this.researchInvestMenu()}])});
   },
   researcherGamblePlay(g){
-    const s=this.s; const sym=cursym(); const max=s.money; const def=Math.round(max/2);
-    D({loc:`🎲 ${g.nm}`, lines:[["env",`${g.d}。押多少？输光本金，赢了乘 ${g.mult}。`]],
-      extra:`<div class="stockbox"><input type="number" id="rgNum" value="${def}" min="0" max="${max}" inputmode="numeric" style="width:150px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:26px;text-align:center;padding:6px"><div class="hint">手头 ${sym}${fmt(max)}</div></div>`,
+    const s=this.s; const sym=cursym(); const cap=this.gambleCap(); const max=Math.min(s.money, cap); const def=Math.round(max/2);
+    D({loc:`🎲 ${g.nm}`, lines:[["env",`${g.d}。押多少？输光本金，赢了乘 ${g.mult}。单注上限 ${sym}${fmt(cap)}。`]],
+      extra:`<div class="stockbox"><input type="number" id="rgNum" value="${def}" min="0" max="${max}" inputmode="numeric" style="width:150px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:26px;text-align:center;padding:6px"><div class="hint">手头 ${sym}${fmt(s.money)} · 单注上限 ${sym}${fmt(cap)}</div></div>`,
       choices:[
         {t:"🎲 梭哈！", cls:"gold", f:()=>{ const bet=clamp(Math.round(+(document.getElementById("rgNum")||{}).value||0),0,max); if(bet<=0){this.toast("押注要大于0");return;}
           if(Math.random()<g.win){ const gain=Math.round(bet*(g.mult-1)); s.money+=gain; this.render();
@@ -3184,7 +3282,7 @@ const Game = {
   _researcherSummary(logs){
     const s=this.s;
     if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
-    if(this.isBuffett && this.isBuffett()) {/* 伦敦不判巴菲特，略 */}
+    if(this.isBuffett()) return this.endingBuffett();    // 英国获胜线（单身£200万/有女友£100万）
     if(s.age>=35) return this.endingDelivery("35 岁仍未上岸");
     D({loc:"🔬 研究员 · 年度小结",
       lines:[["env",logs.join("\n")],["you",`现金 ${cursym()}${fmt(s.money)}　健康 ${s.health}　女友亲密度 ${s.gfFavor}`,"think"]],
@@ -3279,7 +3377,7 @@ const Game = {
 
   endingBuffett(){
     this._scene="endingBuffett"; const s=this.s; s.costY=0; this.toCNY(); this.render();
-    this.endingSplash({emoji:"🏆", title:`${home()}巴菲特`, sub:"TRUE END · 财务自由", color:"#ffcc4d"}, ()=>{
+    this.endingSplash({emoji:"🏆", title:`${home()}巴菲特`, sub:"TRUE END · 衣锦还乡", color:"#ffcc4d"}, ()=>{
       D({loc:`🏆 结局 · ${home()}巴菲特`, art:"shanghai", tw:true,
         lines:[
           ["env",`资产突破 ¥${fmt(s.money)}${s.hasGf?"，身边还有她。":"。"} 财务自由达成。`],
