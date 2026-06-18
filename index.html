@@ -374,7 +374,7 @@ const Game = {
     return {
       // 核心数值
       age:18, money:160000, cur:"CNY", health:100,
-      bro:20, eq:20, career:0,
+      bro:0, eq:0, career:0,
       // 装备/外观（甩棍与汽车仅在斯图加特解锁购买）
       hasBaton:false, hasBoots:false, hasHair:false, hasCar:false,
       // 收藏
@@ -397,7 +397,7 @@ const Game = {
       loan:0, internRaiseMult:1, hospWarned:false,
       hasCardCounter:false, sharkAge:0,
       broLoan:0, broLoanFrom:null,
-      lastAlloc:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
+      lastAlloc:null, lastSocial:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
       actCount:0, gfTimeLock:0,
       papers:0, phdYear:0, nordicY:0, shYears:0,
     };
@@ -791,17 +791,16 @@ const Game = {
         ["env",`盛夏的${home()}，蝉鸣聒噪。高考报名点门口，你攥着报名表。`],
         ["mom",`儿啊，咱户口在${home()}，本地这竞争……一个萝卜八个坑啊。`,{big:true}],
         ["unc","听三舅一句劝，去新疆考！那边分数线松快得多——虽说咱户口不在那儿，但路子嘛，总有的。",{big:true}],
-        ["you","高考地点……这第一步，可得想清楚了。","think"],
       ],
       choices:[
         {t:`🏯 就在${home()}考`, sub:"竞争激烈·凭真本事·备考一年", f:()=>{ this.gaokaoPrepCost(); this.sceneLocalGaokao(); }},
-        {t:"🏜 远赴新疆高考", sub:"需打点 ¥20,000·备考一年", cls:"gold", f:()=>{ this.gaokaoPrepCost(); this.sceneXinjiang(); }}
+        {t:"🏜 远赴新疆高考", sub:"需打点 ¥40,000·备考一年", cls:"gold", f:()=>{ this.gaokaoPrepCost(); this.sceneXinjiang(); }}
       ]
     });
   },
   // 备考一年：从报名到放榜，时间已过去一年——扣一年生活费、长一岁
   gaokaoPrepCost(){
-    const s=this.s; const cost=2500*12;
+    const s=this.s; const cost=1000*12;
     s.age+=1; s.money=Math.max(0,s.money-cost); this.render();
   },
 
@@ -855,7 +854,6 @@ const Game = {
         lines:[
           ["env",`总分 ${total}！一本线之上，名校在向你招手。`],
           ["mom","我儿子有出息！这分数，连同济都够得着！",{big:true}],
-          ["you","同济，还是稳妥的哈工大？","think"],
         ],
         choices:[
           {t:"🏛 报考同济大学", sub:"上海·985名校", cls:"gold", f:()=>this.enterTongji()},
@@ -867,7 +865,6 @@ const Game = {
         lines:[
           ["env",`总分 ${total}，过了一本线，可离同济差着一口气。`],
           ["mom","哈工大威海分校录取你啦！985，知足吧儿子！",{big:true}],
-          ["you","同济无缘，哈工大也很香。","think"],
         ],
         choices:[
           {t:"🛠 去哈工大（威海）报到", cls:"gold", f:()=>this.enterHarbin()},
@@ -879,18 +876,17 @@ const Game = {
       lines:[
         ["env",`总分 ${total}……连本科线都没够着。空气一下子凝固了。`],
         ["mom","别灰心，复读一年再来，或者……去你三舅说的新疆试试？",{big:true}],
-        ["you","复读，还是远走新疆赌一把？","think"],
       ],
       choices:[
         {t:"📚 本地复读一年", sub:"+1岁·花一年生活费·下次分数概率提升", cls:"gold", f:()=>this.repeatLocal()},
-        {t:"🏜 前往新疆复读", sub:"保底哈工大威海·需打点¥20,000", f:()=>this.sceneXinjiang()},
+        {t:"🏜 前往新疆复读", sub:"保底哈工大威海·需打点¥40,000", f:()=>this.sceneXinjiang()},
         {t:"🏯 认命，进厂", cls:"danger", f:()=>this.endingFactoryDog(
           "复读没钱，新疆没路子。你扛起行李，走进了城郊那家工厂。")}
       ]});
   },
   repeatLocal(){
     const s=this.s;
-    const cost=2500*12; // 一年复读生活费（人民币）
+    const cost=1000*12; // 一年复读生活费（人民币）
     // 资金耗光，撑不起又一年复读 → 外卖员结局
     if(s.money<cost){
       return this.endingDelivery("复读耗尽家底",
@@ -914,13 +910,12 @@ const Game = {
     this._scene="sceneXinjiang";
     const s=this.s;
     // 异地高考的"路子"要花两万（仅扣一次）
-    if(!s.flags.xinjiangFee){ s.flags.xinjiangFee=true; s.money=Math.max(0,s.money-20000); this.render(); }
+    if(!s.flags.xinjiangFee){ s.flags.xinjiangFee=true; s.money=Math.max(0,s.money-40000); this.render(); }
     D({
       loc:"新疆 · 志愿填报", art:"xinjiang",
       lines:[
         ["env","新疆的阳光毒辣，分数线却格外温柔。志愿表摊在桌上。"],
-        ["unc","路子已经打点好了——这趟花了 ¥20,000，值！分够了，填志愿吧，想上哪所大学？",{big:true}],
-        ["you","两万块换个升学机会……砸了。","think"],
+        ["unc","路子已经打点好了——这趟花了 ¥40,000，值！分够了，填志愿吧，想上哪所大学？",{big:true}],
       ],
       choices:[
         {t:"🏛 冲一把同济大学", sub:"名校梦", cls:"gold", f:()=>{
@@ -929,7 +924,6 @@ const Game = {
             lines:[
               ["you","老师，我要报同济大学。"],
               ["admin","（头也不抬）系统提示——「外地考试禁止报名同济大学」。想上同济，只能回原籍复读、用本地学籍考。",{big:true}],
-              ["you",`……要么换学校，要么回${home()}复读，搏一把同济。`,"think"],
             ],
             choices:[
               {t:"🛠 改报哈工大（威海）", sub:"保底985", cls:"gold", f:()=>this.enterHarbin()},
@@ -958,7 +952,6 @@ const Game = {
         lines:[
           ["env","🪪 获得【同济大学学生证】！上海四平路，梧桐成荫。"],
           ["prof","同济本科 120 学分，百分制绩点。学风严谨——好好读，毕业能直接衔接硕士深造。",{big:true}],
-          ["you","名校的门进来了，接下来就看自己了。","think"],
         ],
         choices:[{t:"📚 开启大一", cls:"gold", f:()=>this.studyYear()}]});
     });
@@ -971,7 +964,6 @@ const Game = {
       lines:[
         ["env",`🎓 获得【同济大学毕业证】！毕业绩点 ${avgGpa(s)} 分。`],
         ["prof","以你的成绩，可以申请海外硕士深造，也可以直接闯社会。怎么打算？",{big:true}],
-        ["you","读研深造，还是直接工作？","think"],
       ],
       choices:[
         {t:"🎓 申请硕士（衔接深造）", sub:"慕尼黑 / 斯图加特", cls:"gold", f:()=>this.applyMaster()},
@@ -997,7 +989,6 @@ const Game = {
           ["env","🪪 获得【哈工大（威海）学生证】！威海的海风咸咸的。"],
           ["bro","哥们儿，同寝的！我跟你说，这儿毕业得修满 120 学分，百分制绩点。",{big:true}],
           ["bro","记住喽：连着四年别退学就能毕业，可绩点要掉到 60 以下——直接卷铺盖回家。"],
-          ["you","120 学分，稳住绩点……开整！","think"],
         ],
         choices:[{t:"📚 开启大一", cls:"gold", f:()=>this.studyYear()}]
       });
@@ -1232,7 +1223,11 @@ const Game = {
     this._scene="studyYear";
     if(!resuming) s.yearInSchool++;
     // 先预算规划（投资/道具/借钱/社交开支 + 打工/实习时间），再选课与时间
-    this._chosenCredits=null; this._budgetMoney={friend:0,flirt:0,repay:0}; this._budgetWork=null;
+    // 社交开支沿用上学期的加点作为默认（还债每学期归零，债务额度会变）
+    const ls=s.lastSocial||{};
+    this._chosenCredits=null;
+    this._budgetMoney={friend:Math.min(ls.friend||0, s.money), flirt:Math.min(ls.flirt||0, s.money), repay:0};
+    this._budgetWork=null;
     this.budgetPlan(null, this.yrLabelFor(Math.max(1,s.yearInSchool)), false);
   },
   // 读取合并界面上的「本学期学分」（数字输入优先，可超出滑块范围；补课等固定场景回退到入参）
@@ -1297,7 +1292,7 @@ const Game = {
       lines:[
         makeup
           ? ["prof2",`补课学期：强制补修 ${credits} 个挂科学分。通过的课程会从"已挂学分"里移除！正常分配精力即可。`,{big:true}]
-          : ["bro",`选学分、分时间。精力基准 ${this.energyCap()}${s.energyBonus?`（${ORIGINS[s.origin].name}体能好，+${s.energyBonus}）`:""}。超过则睡眠不足随机掉健康；没分完当休息、按余量随机回血。${actE?`\n⏱ 兄弟活动/脱单已占用 ${actE} 点时间（强制扣除）。`:""}`],
+          : ["bro",`选学分、分时间。精力基准 ${this.energyCap()}${s.energyBonus?`（${ORIGINS[s.origin].name}体能好，+${s.energyBonus}）`:""}。可以超出基准（拼一把），只是睡眠不足有可能影响健康；没分完当休息、按余量随机回血。${actE?`\n⏱ 兄弟活动/脱单已占用 ${actE} 点时间（强制扣除）。`:""}`],
         ["bro", `💰 预算已规划（${ekNm} ${lockedWork} 点已锁定、社交开支 ${cursym()}${fmt((this._budgetMoney&&((this._budgetMoney.friend||0)+(this._budgetMoney.flirt||0)))||0)}、还债 ${cursym()}${fmt((this._budgetMoney&&this._budgetMoney.repay)||0)}）。\n🏠 本学期基础生活成本 ${E.sym}${fmt(E.live)}/月。`],
       ],
       extra:`${creditBlock}<div class="alloc" id="alloc">
@@ -1317,6 +1312,7 @@ const Game = {
           const cr=this._readCredits(credits);
           const alloc=this._readAlloc(); this.s.lastAlloc=alloc;
           const ms=this._budgetMoney||{friend:0,flirt:0,repay:0};
+          this.s.lastSocial={friend:ms.friend||0, flirt:ms.flirt||0}; // 记忆本学期社交开支
           const proj=this._projectBudget(alloc, ms);
           if(proj.endBal<0){ this._chosenCredits=pick?cr:null; this.toast("预计资金不足，请回预算规划调整 💸"); return this.budgetPlan(makeup?credits:null, yrLabel, makeup); }
           this.resolveYear(cr, alloc, ms, yrLabel, makeup);
@@ -1444,7 +1440,7 @@ const Game = {
     document.getElementById("poolUsed").textContent = parts.length? `${used}+${parts.join("+")}=${tot}` : used;
     const note=document.getElementById("sleepNote");
     const cap=this.energyCap();
-    if(tot>cap) note.innerHTML=`<span style="color:var(--red)">超 ${tot-cap}%·睡眠不足⚠️</span>`;
+    if(tot>cap) note.innerHTML=`<span style="color:#f5a623">超 ${tot-cap}%·睡眠不足（有可能影响健康）</span>`;
     else if(tot<cap) note.innerHTML=`<span style="color:var(--green)">余 ${cap-tot}%·可休息回血</span>`;
     else note.innerHTML=`<span style="color:var(--gold)">刚好</span>`;
     this._budgetSync();
@@ -1488,7 +1484,12 @@ const Game = {
     // 难度修正：>0 更易过；慕尼黑“严出”更难
     const diffMap={braunschweig:0.14, stuttgart:0.14, london:0.14, munich:-0.12};
     const diffBonus = diffMap[s.lineType]||0;
-    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400 + diffBonus + (s.examBonus||0);
+    // 学期越多越熟练（每多读一学期 +2%，上限 +16%）
+    const semBonus = Math.min(Math.max(0,(s.yearInSchool||1)-1), 8)*0.02;
+    // 临近毕业（剩余学分越少）越容易过：剩 40 学分内开始递增，至毕业前 +12%
+    const remainBefore = Math.max(0, s.creditGoal - s.creditsEarned);
+    const nearGrad = remainBefore<40 ? clamp((40-remainBefore)/40, 0, 1)*0.12 : 0;
+    let passRate = 0.6 + studyW*0.55 - load*0.3 + (s.xuexi||0)/400 + diffBonus + (s.examBonus||0) + semBonus + nearGrad;
     passRate=clamp(passRate,0.12,0.99);
     // 中国百分制基准（高=好）；杰尼龟学霸笔记加成 gradeBonus
     const gpaBaseCn = 55 + studyW*40 - load*22 + (s.xuexi||0)*0.12 + diffBonus*40 + (s.gradeBonus||0)*8;
@@ -1995,17 +1996,50 @@ const Game = {
     this._gfEvent=null;
 
     if(canGraduate){
-      // 修够学分 → 自动毕业
-      lines.push([advisor,`恭喜！已修满 ${s.creditsEarned}/${goal} 学分，平均绩点 ${avgGpa(s)}——你毕业啦！`,{big:true}]);
-      return D({loc:`${s.school} · ${yrLabel} 结算`, lines,
-        choices:[{t:"🎓 毕业，看看接下来的路", cls:"gold", f:()=>this.graduate()}]});
+      // 修够学分 → 那一刻直接进入毕业全屏动画，不再多问一步
+      return this.graduate();
     }
-    lines.push([advisor, `平均绩点 ${avgGpa(s)}，已修 ${s.creditsEarned}/${goal} 学分。继续加油！`]);
-    D({loc:`${s.school} · ${yrLabel} 结算`, lines,
-      choices:[
-        {t:`📚 继续读（升入下一学期）`, sub:`距毕业还差 ${Math.max(0,goal-s.creditsEarned)} 学分`, cls:"gold", f:()=>this.beginYear()},
-        {t:"🚪 主动退学", sub:"放弃学业", cls:"danger", f:()=>this.confirmDropout()}
-      ]});
+    const remain=Math.max(0,goal-s.creditsEarned);
+    lines.push([advisor, remain<10
+      ? `平均绩点 ${avgGpa(s)}，已修 ${s.creditsEarned}/${goal} 学分——就差 ${remain} 学分了！差这么一口气，要不去找老师通融通融？`
+      : `平均绩点 ${avgGpa(s)}，已修 ${s.creditsEarned}/${goal} 学分。继续加油！`]);
+    const choices=[];
+    // 期末只差不到 10 学分即可毕业：可向老师求情或武力威胁（差得越少成功率越高）
+    if(remain>0 && remain<10){
+      const pleadP=Math.round(this._mercyProb(remain)*100);
+      const forceP=Math.round(this._threatenProb(remain)*100);
+      choices.push({t:"🙇 向老师求情", sub:`差 ${remain} 学分·成功率 ${pleadP}%·失败仍可续读`, cls:"gold", f:()=>this.gradMercy(remain)});
+      choices.push({t:"💪 武力威胁老师", sub:`成功率 ${forceP}%（更高）·失败将被开除`, cls:"danger", f:()=>this.gradThreaten(remain)});
+    }
+    choices.push({t:`📚 继续读（升入下一学期）`, sub:`距毕业还差 ${remain} 学分`, cls:"gold", f:()=>this.beginYear()});
+    choices.push({t:"🚪 主动退学", sub:"放弃学业", cls:"danger", f:()=>this.confirmDropout()});
+    D({loc:`${s.school} · ${yrLabel} 结算`, lines, choices});
+  },
+
+  // 临毕业差几学分时的「求情/威胁」成功率（差得越少越高）
+  _mercyProb(remain){ return clamp(0.5 + (10-remain)/10*0.4 + (this.s.eq||0)/400, 0.4, 0.92); },
+  _threatenProb(remain){
+    const s=this.s; let p=0.65 + (10-remain)/10*0.3 + (s.wuli||0)/300;
+    if(s.hasBaton) p+=0.08;
+    return clamp(p, 0.5, 0.96);
+  },
+  gradMercy(remain){
+    const s=this.s;
+    if(Math.random()<this._mercyProb(remain)){
+      s.creditsEarned=s.creditGoal; this.render();
+      return this.eventSplash({emoji:"🙏", title:"求情成功", sub:"老师网开一面，放你毕业", color:"#7ee787"}, ()=>this.graduate());
+    }
+    D({loc:`${s.school} · 求情未果`, tw:true,
+      lines:[["prof2","规矩就是规矩，这几个学分你还得自己修回来。",{big:true}]],
+      choices:[{t:"📚 回去再修一学期", cls:"gold", f:()=>this.beginYear()}]});
+  },
+  gradThreaten(remain){
+    const s=this.s;
+    if(Math.random()<this._threatenProb(remain)){
+      s.creditsEarned=s.creditGoal; this.render();
+      return this.eventSplash({emoji:"😰", title:"威胁奏效", sub:"老师“通融”了这几分", color:"#ffcc4d"}, ()=>this.graduate());
+    }
+    this.eventSplash({emoji:"🚫", title:"威胁失败", sub:"惹怒校方·当场开除", color:"#ff5b5b"}, ()=>this.afterSchoolFail());
   },
 
   confirmDropout(){
@@ -2046,25 +2080,23 @@ const Game = {
     const s=this.s;
     s.yearInSchool++;
     const retake=Math.max(4, Math.min(80, s.creditsFailed));
-    this._budgetMoney={friend:0,flirt:0,repay:0}; this._budgetWork=null;
+    const ls=s.lastSocial||{};
+    this._budgetMoney={friend:Math.min(ls.friend||0, s.money), flirt:Math.min(ls.flirt||0, s.money), repay:0}; this._budgetWork=null;
     this.budgetPlan(retake, "补课学期", true);
   },
   makeupDone(yrLabel){
     this._scene="studyYear";
     const s=this.s;
     if(this._semSnap){ const cur=this._snapStats(), d={}; for(const k in cur){ const diff=cur[k]-this._semSnap[k]; if(diff) d[k]=diff; } this._semSnap=null; this._showDeltas(d); }
-    const grad=s.creditsEarned>=s.creditGoal;
-    const choices = grad
-      ? [{t:"🎓 毕业！", cls:"gold", f:()=>this.graduate()}]
-      : [{t:"📚 回到正常学期", cls:"gold", f:()=>this.beginYear()},
-         {t:"🚪 退学", cls:"danger", f:()=>this.confirmDropout()}];
+    // 补课后已修满学分 → 直接进入毕业全屏动画
+    if(s.creditsEarned>=s.creditGoal) return this.graduate();
     D({loc:"📚 补课学期 · 结算",
       lines:[
         ["env","📊 数值变化见顶部仪表盘 ↑"],
-        ["prof2", `补课结束，累计挂科降到 ${s.creditsFailed}/30。${grad?"学分也修满了！":""}`,{big:true}],
-        ["you", s.creditsFailed>30?"还是太多……":"缓过来了，继续！","think"],
+        ["prof2", `补课结束，累计挂科降到 ${s.creditsFailed}/30。`,{big:true}],
       ],
-      choices});
+      choices:[{t:"📚 回到正常学期", cls:"gold", f:()=>this.beginYear()},
+         {t:"🚪 退学", cls:"danger", f:()=>this.confirmDropout()}]});
   },
 
   /* 助学贷款额度上限（按币种） */
@@ -2275,8 +2307,7 @@ const Game = {
     if(lt==="stuttgart"){
       return D({loc:"斯图加特 · 退学", tw:true,
         lines:[
-          ["env","你离开了斯图加特。"],
-          ["you","没文凭，也得活下去。去上海试试？","think"],
+          ["env","你离开了斯图加特。没文凭，也得活下去。"],
         ],
         choices:[
           {t:"🌃 去上海闯荡", sub:"上海支线 · 进车企", cls:"gold", f:()=>this.enterShanghai("car")},
@@ -2285,7 +2316,7 @@ const Game = {
     }
     if(lt==="braunschweig"){
       return D({loc:"不伦瑞克 · 退学",
-        lines:[["env","你从不伦瑞克退学了。"],["you","下一步往哪走？","think"]],
+        lines:[["env","你从不伦瑞克退学了。"]],
         choices:[
           {t:"🌃 去上海闯荡", sub:"上海支线 · 进车企", cls:"gold", f:()=>this.enterShanghai("car")},
           goCangzhou
@@ -2294,8 +2325,7 @@ const Game = {
     if(lt==="london"){
       const job=this.shanghaiJob();
       return D({loc:"伦敦UCL · 退学", tw:true,
-        lines:[["env","你从 UCL 退学了，泰晤士河的风冷得刺骨。"],
-               ["you","书读不下去了……回上海，再拼一把？","think"]],
+        lines:[["env","你从 UCL 退学了，泰晤士河的风冷得刺骨。"]],
         choices:[
           {t: job==="quant"?"🌃 回上海 · 进量化机构":"🌃 回上海 · 进车企",
            sub: job==="quant"?"没拿到 UCL 文凭，收入比毕业生低":"燃油车企",
@@ -2308,7 +2338,6 @@ const Game = {
       lines:[
         ["env","你离开了校园。"],
         ["mom",`孩子，${this.s.diplomas.length?"好歹你也拿过文凭，":""}回家也行，出去闯也行。你自己拿主意。`],
-        ["you","下一步，往哪走？","think"],
       ],
       choices:[
         goCangzhou,
@@ -2330,7 +2359,6 @@ const Game = {
           lines:[
             ["env",`🎓 获得【哈工大（威海）毕业证】！学士帽抛向威海的天空，平均绩点 ${avgGpa(s)} 分。`],
             ["unc","大学毕业啦！来，三舅给你指条明路——走个关系，进红旗汽车咋样？体面工作，包分配！",{big:true}],
-            ["you","读研、红旗、出国、还是回家……人生第一个大岔路口。","think"],
           ],
           choices:[
             {t:"🎓 申请海外硕士", sub:"凭绩点冲慕尼黑 / 稳进斯图加特", cls:"gold", f:()=>this.applyMaster()},
@@ -2380,7 +2408,6 @@ const Game = {
           ["env","🪪 获得【不伦瑞克工业大学学生证】！"+(exchanged?`\n💱 资金已按 1€≈${RATE}¥ 兑换。`:"")+`\n💶 缴纳德国院校申请费 €${fmt(fee)}。`],
           ["prof2","Willkommen! 欢迎来到德国。这里本科 120 学分，专业是【传统内燃机车辆工程】，绩点 0–5，越高越好。",{big:true}],
           ["prof2","生活成本 €1,000/月，比慕尼黑斯图加特实惠。毕业绩点会决定你能申到哪所硕士。加油，Los geht's!"],
-          ["you","换了个国家，重头再来。","think"],
         ],
         choices:[{t:"📚 开始德国本科生活", cls:"gold", f:()=>this.beginYear()}]});
     });
@@ -2394,7 +2421,6 @@ const Game = {
       lines:[
         ["env",`🎓 获得【不伦瑞克工业大学毕业证】！毕业绩点 ${avgGpa(s)}/5.0。`],
         ["prof2","Glückwunsch！毕业了！以你的成绩，接下来可以申硕士，也可以直接闯社会。你怎么想？"],
-        ["you","读研深造，还是回国发展？","think"],
       ],
       choices:[
         {t:"🎓 申请硕士", sub:"慕尼黑 / 斯图加特", cls:"gold", f:()=>this.applyMaster()},
@@ -2421,7 +2447,6 @@ const Game = {
       lines:[
         ["prof2",`你本科均绩 ${gradeDesc}。两所学校等你挑——`],
         ["prof2",`慕尼黑工大（TUM）：宽进严出但门槛不低，你这成绩约 ${Math.round(muProb*100)}% 命中，免学费，但报名要先无条件交 €1000 申请费；斯图加特（司徒）：100% 录取，每学期 €1500 学费。`],
-        ["you","稳一手，还是赌一把名校？","think"],
       ],
       choices:[
         {t:"🦁 赌慕尼黑 TUM（申请费 €1000）", sub:`成功率约 ${Math.round(muProb*100)}% · 申请费不退`, cls:"gold", f:()=>{
@@ -2465,7 +2490,6 @@ const Game = {
         lines:[
           ["env","🪪 获得【慕尼黑工业大学学生证】！硕士项目：90 学分，专业【传统内燃机车辆工程】，德国绩点。"],
           ["gf","到慕尼黑啦？我在汉堡这边也快毕业咯，加油读书，别太想我～",{big:true}],
-          ["you","异地恋 + 读研，时间和钱都得算计着花。","think"],
         ],
         choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
     });
@@ -2478,7 +2502,6 @@ const Game = {
       lines:[
         ["env",`🎓 获得【慕尼黑工业大学硕士毕业证】！专业：传统内燃机车辆工程，毕业绩点 ${avgGpa(s)}/5.0。`],
         ["prof2","内燃机这行……唉，日薄西山喽。你这文凭，回国也就进红旗或上海传统车企了。",{big:true}],
-        ["you","内燃机专业，出路就这么窄。回上海传统车企，还是回老家进红旗？","think"],
       ],
       choices:[
         {t:"🌃 回上海 · 传统车企", sub:"内燃机对口·工资偏低", cls:"gold", f:()=>this.shanghaiJobMenu()},
@@ -2519,7 +2542,6 @@ const Game = {
       if(m==="ad") lines.push(["prof2","自动驾驶玩的是数据与算法——新势力车企与量化机构最爱。",{big:true}]);
       else if(m==="ev") lines.push(["prof2","电车方向扎实，传统车企、新势力都对口。好好干。",{big:true}]);
       else lines.push(["prof2","控制论是学术的硬骨头——读得好，能一路读到博士，成一方学阀。毕业前我可得给你介绍个对象，免得你读傻了。",{big:true}]);
-      lines.push(["you","方向定了，开整！","think"]);
       D({loc:"斯图加特 · 开学", art:"stuttgart", tw:true, lines,
         choices:[{t:"📚 开始硕士生活", cls:"gold", f:()=>this.beginYear()}]});
     };
@@ -2536,8 +2558,7 @@ const Game = {
     this.transition({emoji:"📉", title:"内燃机·日薄西山", sub:"行业寒冬·转型抉择", color:"#8b98a8", hold:2200}, ()=>{
       D({loc:"🦁 慕尼黑 · 转学抉择", art:"munich", tw:true,
         lines:[
-          ["prof2","跟你说个事儿——内燃机这专业，眼看着是日薄西山了。听说斯图加特新增了电车、自动驾驶专业，前途光明。",{big:true}],
-          ["you","TUM 名校光环 vs 转学搏个新方向……要不要转？转学要重新交申请费、学费，学分清零重读。","think"],
+          ["prof2","跟你说个事儿——内燃机这专业，眼看着是日薄西山了。听说斯图加特新增了电车、自动驾驶专业，前途光明。转学要重新交申请费、学费，学分清零重读。",{big:true}],
         ],
         choices:[
           {t:"🏰 转学斯图加特（换新专业）", sub:"申请费€1000+学费·学分重置·可选电车/自动驾驶/控制论", cls:"gold", f:()=>this.enterStuttgart()},
@@ -2588,8 +2609,7 @@ const Game = {
     // 控制论：学术路线，可申亚琛读博，或回上海进传统车企
     if(s.major==="ctrl"){
       return D({loc:"斯图加特 · 启程", art:"stuttgart", tw:true,
-        lines:[["prof2","你这控制论底子，去亚琛工大读个博士，将来就是学界大牛了。当然，回上海进车企也行。",{big:true}],
-               ["you","是继续深造冲学术，还是回国上班？","think"]],
+        lines:[["prof2","你这控制论底子，去亚琛工大读个博士，将来就是学界大牛了。当然，回上海进车企也行。",{big:true}]],
         choices:[
           {t:"🎓 去亚琛工大读博士", sub:"五年制·学术路线·冲「学阀衣锦还乡」", cls:"gold", f:()=>this.enterAachen()},
           {t:"🌃 回上海 · 传统车企", sub:"放弃学术·进厂上班", f:()=>this.enterShanghai("car")}
@@ -2597,7 +2617,7 @@ const Game = {
     }
     // 电车 / 自动驾驶：回上海按专业选岗
     D({loc:"斯图加特 · 启程",
-      lines:[["you","德国的日子，结束了。回上海，闯一闯。","think"]],
+      lines:[["env","德国的日子结束了。回上海，闯一闯。"]],
       choices:[{t:"🌃 回上海发展", sub:"按专业选择岗位", cls:"gold", f:()=>this.shanghaiJobMenu()}]});
   },
 
@@ -3044,7 +3064,6 @@ const Game = {
     D({loc:"🌃 上海 · 选择岗位", art:"shanghai", tw:true,
       lines:[
         ["hr2",`你的专业是【${({ev:"电车",ad:"自动驾驶"}[s.major])}】，对口这几个岗位——挑一个吧。`,{big:true}],
-        ["you","新势力薪水高但熬人，传统车企稳但前景暗，量化最猛……怎么选？","think"],
       ],
       choices});
   },
@@ -4029,7 +4048,7 @@ const PEOPLE={
   garf: {nm:"加菲猫",cost:20, get:{eq:6},      skill:"未知", intro:"（堵在宿舍门口）就你们也喝不起星巴克吧？我天天一杯，要不要我请你……开个玩笑。哎你别走啊，陪我唠唠！"},
   kubi: {nm:"小苦逼",cost:16, get:{},          skill:"未知", intro:"唉……活着真没意思，干啥啥不行，倒霉的事儿全让我赶上了。你说人活着到底图个啥呢……"},
   jenny:{nm:"杰尼龟",cost:32, get:{xuexi:14},  skill:"学霸笔记：学习力↑、考试成绩与通过率↑", intro:"考试范围我都划好了，跟着我稳过。"},
-  zhao: {nm:"赵老师",cost:34, get:{},          skill:"炒股入门：解锁「投资理财」（仅未选自动驾驶时有效）", intro:"我炒股二十年，K线图比脸还熟。没学过自动驾驶？没事，跟我学炒股，照样钱生钱。"},
+  zhao: {nm:"赵老师",cost:34, get:{},          skill:"炒股入门：解锁「投资理财」", intro:"我炒股二十年，K线图比脸还熟。没学过自动驾驶？没事，跟我学炒股，照样钱生钱。"},
 };
 function gainText(get){ const L={bro:"兄弟义气",eq:"情商",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
   const parts=Object.keys(get).map(k=>`${L[k]||k}+${get[k]}`);
