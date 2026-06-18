@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>沧州风云 · 剧情线路树形图</title>
+<style>
+  :root{
+    --bg:#0a0d12; --panel:#11161f; --line:#222a36; --dim:#8b98a8;
+    --gold:#ffcc4d; --accent:#58a6ff; --green:#3fb950; --red:#ff5b5b;
+    --purple:#bc8cff; --orange:#ff7a3c; --pink:#ff8ecb;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:radial-gradient(1200px 600px at 50% -10%, #16202e, #0a0d12 60%);
+    color:#e8edf3; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; padding:18px 12px 60px;}
+  header{text-align:center; margin-bottom:6px;}
+  h1{font-size:26px; margin:6px 0 2px; letter-spacing:6px;
+    background:linear-gradient(90deg,var(--gold),#ffe39a); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .sub{color:var(--dim); font-size:13px;}
+  .winbox{max-width:900px; margin:14px auto; background:var(--panel); border:1px solid var(--line);
+    border-left:4px solid var(--green); border-radius:10px; padding:12px 16px; font-size:13.5px; line-height:1.9;}
+  .winbox b{color:var(--green);}
+  .legend{max-width:980px; margin:10px auto 4px; display:flex; flex-wrap:wrap; gap:8px 14px; justify-content:center; font-size:12.5px; color:var(--dim);}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .dot{width:13px; height:13px; border-radius:3px; display:inline-block;}
+  .chart-wrap{max-width:1500px; margin:12px auto 0; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:0; position:relative; overflow:hidden; height:74vh; min-height:420px;
+    cursor:grab; touch-action:none;}
+  .chart-wrap.grabbing{cursor:grabbing;}
+  #zoomLayer{position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform;}
+  #zoomLayer .mermaid{min-width:1100px; padding:10px;}
+  .zoom-ctl{position:absolute; right:12px; bottom:12px; display:flex; gap:6px; z-index:5;}
+  .zoom-ctl button{width:36px; height:36px; border-radius:9px; border:1px solid var(--line);
+    background:rgba(17,22,31,.92); color:var(--gold); font-size:18px; font-weight:800; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);}
+  .zoom-ctl button:hover{border-color:var(--gold);}
+  .zoom-ctl button.reset{font-size:13px; width:auto; padding:0 10px;}
+  .zoom-hint{position:absolute; left:12px; top:10px; z-index:5; color:var(--dim); font-size:11.5px;
+    background:rgba(10,13,18,.6); padding:3px 8px; border-radius:7px; pointer-events:none;}
+  .zoom-badge{position:absolute; right:12px; top:10px; z-index:5; color:var(--gold); font-size:12px; font-weight:700;
+    background:rgba(10,13,18,.6); padding:3px 8px; border-radius:7px; pointer-events:none;}
+  footer{text-align:center; color:var(--dim); font-size:11.5px; margin-top:26px; opacity:.7;}
+  .note{max-width:900px; margin:8px auto 0; color:var(--dim); font-size:12px; text-align:center;}
+</style>
+</head>
+<body>
+  <header>
+    <h1>沧 州 风 云</h1>
+    <div class="sub">人生剧情线路树形图 · 当前版本</div>
+  </header>
+
+  <div class="winbox">
+    🏆 <b>获胜条件（沧州巴菲特·衣锦还乡）</b><br>
+    🇨🇳 中国线：单身 ¥1000万 / 有女友 ¥500万　｜　🇬🇧 英国线：单身 £200万 / 有女友 £100万<br>
+    任意工作阶段达成资产线 → <b>立即触发 TRUE END</b>。
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--gold)"></i>起点 / 抉择</span>
+    <span><i class="dot" style="background:var(--accent)"></i>学业阶段</span>
+    <span><i class="dot" style="background:var(--purple)"></i>工作阶段</span>
+    <span><i class="dot" style="background:var(--green)"></i>圆满 / 学术结局</span>
+    <span><i class="dot" style="background:var(--orange)"></i>中性结局</span>
+    <span><i class="dot" style="background:var(--red)"></i>失败结局</span>
+    <span><i class="dot" style="background:#8b98a8"></i>开放结局</span>
+    <span>— 实线：主路径　┄ 虚线：退学 / 意外分支　══ 资产达标捷径</span>
+  </div>
+
+  <div class="chart-wrap" id="chartWrap">
+    <div class="zoom-hint">🖱 滚轮缩放 · 拖拽平移 · 双击复位</div>
+    <div class="zoom-badge" id="zoomBadge">100%</div>
+    <div id="zoomLayer">
+    <pre class="mermaid">
+flowchart LR
+
+  START(["🎮 开局<br/>选籍贯·定天赋"]):::start
+  GK{"沧州·18岁高考<br/>2012年·考点抉择"}:::start
+
+  %% ---------- 高考 ----------
+  LOCAL["本地高考<br/>逐门出分"]:::start
+  XJ["新疆高考<br/>打点 ¥2万"]:::start
+  REPEAT["复读一年<br/>刷分再战"]:::start
+
+  %% ---------- 本科 ----------
+  TONGJI["🏛 同济大学<br/>本科·百分制"]:::school
+  HARBIN["🛠 哈工大·威海<br/>本科·985"]:::school
+  BRAUN["🏰 布伦瑞克工大<br/>内燃机·德国重读本科"]:::school
+
+  APPLY{"🎓 硕士申请<br/>每所申请费€1000"}:::school
+  MUNICH["🦁 慕尼黑 TUM<br/>内燃机·硕士"]:::school
+  STUTT["🏰 斯图加特·司徒<br/>硕士·选方向"]:::school
+  DIR{"选方向<br/>🔋电车/🤖自驾/🧠控制论"}:::school
+  LONDON["🇬🇧 伦敦 UCL<br/>量化金融硕士·£10万"]:::school
+  AACHEN["🎓 亚琛工大·读博<br/>五年制·发5篇论文毕业"]:::school
+
+  %% ---------- 工作 ----------
+  SHJOB{"🌃 回上海·按专业选岗"}:::work
+  J_CAR["🚗 传统车企<br/>工资低"]:::work
+  J_NEW["🔋 造车新势力<br/>薪高·伤身"]:::work
+  J_QUANT["📈 量化机构<br/>顶薪·极猛"]:::work
+  SH["🌃 上海打拼<br/>逐年·投资理财"]:::work
+  MOM["💍 老妈催婚<br/>单身→相亲脱单"]:::work
+  GFUK["✈️ 女友赴英留学<br/>异地铺垫"]:::work
+  LONDEC{"赴英陪读?"}:::work
+  QUIT{"🏥 住院辞职<br/>抉择"}:::work
+  NORDIC["🌍 北欧外企<br/>work-life balance"]:::work
+  TRIP{"📞 出差惊魂<br/>同事失联·老板骚扰"}:::work
+  INTERN["🪙 伦敦虚拟币实习<br/>拼转正"]:::work
+  RESEARCH["🔬 正式研究员<br/>四向时间+理财"]:::work
+
+  %% ---------- 结局 ----------
+  E_BUFFETT(["🏆 沧州巴菲特<br/>衣锦还乡·TRUE END"]):::winEnd
+  E_SCHOLAR(["🎓 学阀世家<br/>衣锦还乡·PERFECT END"]):::winEnd
+  E_LONHAPPY(["💞 伦敦圆满<br/>带她回上海"]):::winEnd
+  E_HONGQI(["🚩 红旗汽车<br/>体面铁饭碗"]):::midEnd
+  E_DELIVERY(["🛵 外卖骑手<br/>裁员/破产/坐吃山空"]):::badEnd
+  E_FACTORY(["🏭 进厂打工<br/>认命流水线"]):::badEnd
+  E_DEATH(["💀 积劳成疾<br/>健康归零"]):::badEnd
+  E_PRISON(["⛓️ 牢底坐穿<br/>甩棍伤人被捕"]):::badEnd
+  E_UNFIN(["🌫️ 未完待续<br/>OPEN END"]):::openEnd
+
+  %% ===== 高考分流 =====
+  START --> GK
+  GK -->|本地考| LOCAL
+  GK -->|远赴新疆| XJ
+  LOCAL -->|≥600分| TONGJI
+  LOCAL -->|仅哈工大·可复读| HARBIN
+  LOCAL -->|未达线| REPEAT
+  LOCAL -->|落榜没钱| E_FACTORY
+  REPEAT --> LOCAL
+  XJ -->|同济禁报·改报| HARBIN
+  XJ -.回原籍冲同济.-> REPEAT
+
+  %% ===== 同济 =====
+  TONGJI --> AFTT{"同济毕业"}:::school
+  AFTT --> APPLY
+  AFTT --> E_HONGQI
+  AFTT -->|留沪·传统车企| J_CAR
+  TONGJI -.退学·重读.-> BRAUN
+
+  %% ===== 哈工大 =====
+  HARBIN --> GRADH{"哈工大毕业"}:::school
+  GRADH --> APPLY
+  GRADH --> E_HONGQI
+  GRADH -->|出国重读| BRAUN
+  GRADH -->|认命| E_FACTORY
+  HARBIN -.退学·重读.-> BRAUN
+
+  %% ===== 布伦瑞克（内燃机本科）=====
+  BRAUN --> AFTB{"布伦瑞克毕业"}:::school
+  AFTB -->|TUM成功率+18%| APPLY
+  AFTB --> E_HONGQI
+  AFTB -->|内燃机·传统车企| J_CAR
+
+  %% ===== 硕士申请（申请费€1000，无论录取）=====
+  APPLY -->|赌中 TUM| MUNICH
+  APPLY -->|失败·重读刷绩点| BRAUN
+  APPLY -->|保底司徒| STUTT
+  APPLY --> E_HONGQI
+
+  %% ===== 慕尼黑 TUM（内燃机）=====
+  MUNICH -->|第一学期·内燃机日薄西山·转学| STUTT
+  MUNICH --> GRADM{"TUM毕业·内燃机"}:::school
+  GRADM -->|传统车企| J_CAR
+  GRADM --> E_HONGQI
+  MUNICH -.退学.-> STUTT
+  MUNICH -.退学.-> J_CAR
+  MUNICH -.退学.-> E_FACTORY
+
+  %% ===== 斯图加特（电车/自动驾驶/控制论）=====
+  STUTT --> DIR
+  DIR -->|🤖自动驾驶| SHJOB
+  DIR -->|🔋电车| SHJOB
+  DIR -->|🧠控制论·强制脱单| AACHEN
+  DIR -.控制论·放弃学术.-> J_CAR
+  STUTT -.退学.-> J_CAR
+
+  %% ===== 回上海·按专业选岗 =====
+  SHJOB -->|自动驾驶| J_QUANT
+  SHJOB -->|自动驾驶/电车| J_NEW
+  SHJOB -->|电车/内燃机| J_CAR
+
+  %% ===== 上海三类岗位 =====
+  J_CAR --> SH
+  J_NEW --> SH
+  J_QUANT --> SH
+  J_CAR -.满两年裁员.-> E_DELIVERY
+  J_NEW -.健康崩→住院.-> QUIT
+  QUIT -->|回老家躺平| E_DELIVERY
+  QUIT -->|跳槽北欧外企| NORDIC
+
+  %% ===== 上海打拼 逐年 =====
+  SH --> MOM
+  MOM --> SH
+  SH -->|有女友·首年| GFUK
+  GFUK --> SH
+  SH -->|第二年末| LONDEC
+  LONDEC -->|去伦敦陪读| LONDON
+  LONDEC -.不去·分手.-> SH
+  SH -.破产/35岁.-> E_DELIVERY
+  SH -.健康归零.-> E_DEATH
+  SH ==>|达成资产线| E_BUFFETT
+
+  %% ===== 北欧外企支线 =====
+  NORDIC -->|第二年·出差| TRIP
+  NORDIC ==>|达成资产线| E_BUFFETT
+  TRIP -->|😶 不理·辞职| E_UNFIN
+  TRIP -->|🥢 甩棍伺候 70%| E_PRISON
+  TRIP -.甩棍 30%侥幸.-> E_UNFIN
+
+  %% ===== 亚琛博士·学术线 =====
+  AACHEN -->|发满5篇论文| E_SCHOLAR
+  AACHEN -->|第二年·结婚| AACHEN
+  AACHEN -.延毕退学.-> J_CAR
+
+  %% ===== 伦敦线 =====
+  LONDON --> GRADL{"UCL毕业"}:::school
+  GRADL -->|留伦敦| INTERN
+  GRADL -->|回上海·选岗| SHJOB
+  LONDON -.退学.-> SHJOB
+  INTERN -->|转正| RESEARCH
+  INTERN -.感情破裂.-> SH
+  RESEARCH -->|继续搞钱| RESEARCH
+  RESEARCH ==>|达成资产线| E_BUFFETT
+  RESEARCH -->|见好就收| E_LONHAPPY
+  RESEARCH -.破产/健康.-> E_DELIVERY
+
+  classDef start fill:#3a2f12,stroke:#ffcc4d,stroke-width:1.5px,color:#ffe39a;
+  classDef school fill:#13283f,stroke:#58a6ff,stroke-width:1.5px,color:#bfe0ff;
+  classDef work fill:#2a1c40,stroke:#bc8cff,stroke-width:1.5px,color:#e0ccff;
+  classDef winEnd fill:#12331c,stroke:#3fb950,stroke-width:2px,color:#9be6ad;
+  classDef midEnd fill:#3a230f,stroke:#ff7a3c,stroke-width:1.5px,color:#ffc3a0;
+  classDef badEnd fill:#3a1414,stroke:#ff5b5b,stroke-width:1.5px,color:#ffb3b3;
+  classDef openEnd fill:#1c222b,stroke:#8b98a8,stroke-width:1.5px,color:#c4ccd6;
+    </pre>
+    </div>
+    <div class="zoom-ctl">
+      <button id="zoomOut" title="缩小">−</button>
+      <button class="reset" id="zoomReset" title="复位">复位</button>
+      <button id="zoomIn" title="放大">+</button>
+    </div>
+  </div>
+
+  <div class="note">提示：横向滚动查看完整线路。粗箭头 ==&gt; 为「衣锦还乡」获胜捷径，可在任意工作阶段达成资产线时触发。</div>
+  <footer>沧州风云 · 剧情线路图　|　游戏开发：柏林可达鸭游戏工作室 🦆</footer>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad:false,
+      theme:"base",
+      themeVariables:{
+        fontFamily:'-apple-system,"PingFang SC","Microsoft YaHei",sans-serif',
+        fontSize:"14px",
+        lineColor:"#5a6679",
+        primaryColor:"#11161f",
+        primaryTextColor:"#e8edf3",
+        primaryBorderColor:"#222a36",
+        edgeLabelBackground:"#0a0d12",
+        tertiaryColor:"#11161f"
+      },
+      flowchart:{ curve:"basis", nodeSpacing:42, rankSpacing:70, htmlLabels:true, padding:8 }
+    });
+
+    await mermaid.run();
+    initPanZoom();
+
+    function initPanZoom(){
+      const wrap=document.getElementById("chartWrap");
+      const layer=document.getElementById("zoomLayer");
+      const badge=document.getElementById("zoomBadge");
+      const svg=layer.querySelector("svg");
+      if(!svg) return;
+      // 让 SVG 以自身像素尺寸布局，便于缩放
+      svg.removeAttribute("style");
+      svg.style.display="block";
+      const vb=svg.viewBox.baseVal;
+      const baseW=(vb&&vb.width)||svg.getBoundingClientRect().width||1100;
+      const baseH=(vb&&vb.height)||svg.getBoundingClientRect().height||600;
+      svg.setAttribute("width", baseW);
+      svg.setAttribute("height", baseH);
+
+      let scale=1, tx=0, ty=0;
+      const MIN=0.2, MAX=6;
+      const apply=()=>{ layer.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
+        badge.textContent=Math.round(scale*100)+"%"; };
+
+      // 初始：等比缩放铺满宽度（留点边距），垂直居中
+      const fit=()=>{
+        const r=wrap.getBoundingClientRect();
+        scale=Math.min((r.width-20)/baseW, (r.height-20)/baseH, 1);
+        if(!isFinite(scale)||scale<=0) scale=1;
+        tx=(r.width-baseW*scale)/2;
+        ty=(r.height-baseH*scale)/2;
+        apply();
+      };
+
+      wrap.addEventListener("wheel", e=>{
+        e.preventDefault();
+        const r=wrap.getBoundingClientRect();
+        const px=e.clientX-r.left, py=e.clientY-r.top;
+        const factor=Math.exp(-e.deltaY*0.0015);
+        const ns=Math.min(MAX, Math.max(MIN, scale*factor));
+        // 以指针为锚点缩放
+        tx = px - (px - tx)*(ns/scale);
+        ty = py - (py - ty)*(ns/scale);
+        scale=ns; apply();
+      }, {passive:false});
+
+      // 拖拽平移（鼠标 + 触摸）
+      let dragging=false, lx=0, ly=0;
+      const down=e=>{ dragging=true; wrap.classList.add("grabbing");
+        const p=e.touches?e.touches[0]:e; lx=p.clientX; ly=p.clientY; };
+      const move=e=>{ if(!dragging) return; const p=e.touches?e.touches[0]:e;
+        tx+=p.clientX-lx; ty+=p.clientY-ly; lx=p.clientX; ly=p.clientY; apply(); };
+      const up=()=>{ dragging=false; wrap.classList.remove("grabbing"); };
+      wrap.addEventListener("mousedown", down);
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+      wrap.addEventListener("touchstart", down, {passive:true});
+      wrap.addEventListener("touchmove", move, {passive:true});
+      wrap.addEventListener("touchend", up);
+      wrap.addEventListener("dblclick", fit);
+
+      // 按钮：以视口中心缩放
+      const zoomAt=(f)=>{ const r=wrap.getBoundingClientRect(); const px=r.width/2, py=r.height/2;
+        const ns=Math.min(MAX, Math.max(MIN, scale*f));
+        tx=px-(px-tx)*(ns/scale); ty=py-(py-ty)*(ns/scale); scale=ns; apply(); };
+      document.getElementById("zoomIn").addEventListener("click", ()=>zoomAt(1.25));
+      document.getElementById("zoomOut").addEventListener("click", ()=>zoomAt(0.8));
+      document.getElementById("zoomReset").addEventListener("click", fit);
+
+      fit();
+      window.addEventListener("resize", fit);
+    }
+  </script>
+</body>
+</html>
