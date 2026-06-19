@@ -513,6 +513,7 @@ const Game = {
 
   start(){
     this.s = this.fresh();
+    this._scene="chooseOrigin"; // 渲染前先标记，避免首帧 render 误写存档
     this.render();
     this.chooseOrigin();
   },
@@ -558,7 +559,7 @@ const Game = {
   },
   applyOrigin(key){
     const s=this.s; const o=ORIGINS[key]||ORIGINS.hebei;
-    s.origin=key; s.home=o.city;
+    s.origin=key; s.home=o.city; s.originPicked=true; // 标记已选角色，此后才允许写存档
     // 随机指定一位室友，作为初始联系人
     if(!s.roommate){ s.roommate=ROOMMATES[rand(0,ROOMMATES.length-1)]; s.friends=s.friends||{}; s.friends.roommate={fav:rand(45,65)}; }
     // 先归位默认，再按籍贯加成
@@ -671,13 +672,15 @@ const Game = {
     try{
       const scene=this._scene||"sceneCangzhou";
       if(scene==="chooseOrigin" && !force) return false; // 选人界面不覆盖正式进度
+      if(!(this.s && this.s.originPicked) && !force) return false; // 还没选角色，不写存档（否则刷新会跳过选人）
       localStorage.setItem(SAVE_KEY, JSON.stringify({s:this.s, scene})); return true;
     }catch(e){ return false; }
   },
   load(){
     try{
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
-      if(d&&d.s){ this.s=d.s; document.getElementById("app").classList.remove("landing"); this.render();
+      // 仅当存档确实选过角色才续档；忽略「未选人就写下」的脏档/旧档，回到选人界面
+      if(d&&d.s&&d.s.originPicked){ this.s=d.s; document.getElementById("app").classList.remove("landing"); this.render();
         this._resuming=true; (this[d.scene]||this.sceneCangzhou).call(this); this._resuming=false; return true; }
     }catch(e){}
     return false;
