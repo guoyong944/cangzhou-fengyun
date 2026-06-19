@@ -398,7 +398,7 @@ const Game = {
       hasCardCounter:false, sharkAge:0,
       broLoan:0, broLoanFrom:null,
       lastAlloc:null, lastSocial:null, courtPlan:null, blocked:[], roommate:null, garfMoveDone:false,
-      actCount:0, gfTimeLock:0,
+      actCount:0, gfTimeLock:0, detentionEnergy:0,
       papers:0, phdYear:0, nordicY:0, shYears:0,
       semGiftN:0, semTreatN:0, // 单学期内 送礼/请客 次数（边际递减用）
       lastPhdAlloc:null,
@@ -552,7 +552,7 @@ const Game = {
     else if(key==="wenzhou"){ s.money=300000; }                 // 温州：初始资金更多
   },
   // 精力上限（山西更高，可分配更多）
-  energyCap(){ return 100 + (this.s.energyBonus||0); },
+  energyCap(){ return Math.max(20, 100 + (this.s.energyBonus||0) - (this.s.detentionEnergy||0)); },
   // 年龄越大健康损耗越高（24岁起，每3岁多掉约2点；山西人体质好减半）
   ageHealthDrain(){ const a=this.s.age||18; return Math.max(0, Math.round(Math.max(0,a-24)*0.6*(this.s.healthDrainMult||1))); },
 
@@ -1730,6 +1730,8 @@ const Game = {
     const ageDrain=this.ageHealthDrain();
     if(ageDrain>0){ hpDelta-=ageDrain; logs.push(`⏳ 年纪渐长（${s.age}岁），身体机能下滑，健康 -${ageDrain}`); }
     s.health=clamp(s.health+hpDelta,0,100);
+    // 拘留/找人占用的可支配时间是"一次性"的：本学期已按缩减后的精力上限结算，用完即清零
+    if(s.detentionEnergy){ logs.push(`⏳ 本学期可支配时间被占用 ${s.detentionEnergy} 点（拘留/找人等）。`); s.detentionEnergy=0; }
 
     // ---- 随机事件：智齿发作 ----
     if(Math.random()<0.22){
@@ -1756,6 +1758,8 @@ const Game = {
         logs.push(this._semEvent);
       }
     }
+    // ---- 反派兄弟·学期负面事件（仍在联系人里才触发；触发次数越多概率越低，至多一个）----
+    this._rollVillain();
 
     // 健康恢复良好则解除"住院警告"
     if(s.health>=70) s.hospWarned=false;
@@ -1785,6 +1789,8 @@ const Game = {
     if(s.major==="ctrl" && s.lineType==="stuttgart" && !s.hasGf && !s.flags.ctrlGf && s.creditsEarned>=s.creditGoal-18){ s.flags.ctrlGf=true; const nx=after; after=()=>this.ctrlForceGf(nx); }
     // 脱单进度公布（全屏）
     if(this._pendingCourt){ const info=this._pendingCourt; this._pendingCourt=null; const nx=after; after=()=>this.courtResultEvent(info, nx); }
+    // 反派兄弟·负面事件（全屏 + 是否绝交）
+    if(this._pendingVillain){ const info=this._pendingVillain; this._pendingVillain=null; const nx=after; after=()=>this.villainEvent(info, nx); }
     // 兄弟讨债剧情（全屏 + 还/拒选择）
     if(this._pendingBroDebt){ const info=this._pendingBroDebt; this._pendingBroDebt=null; const nx=after; after=()=>this.broDebtEvent(info, nx); }
     // 高利贷追债·被打住院剧情
@@ -2896,7 +2902,7 @@ const Game = {
         s.semTreatN=(s.semTreatN||0)+1; this.render();
         this.toast(`和 ${nm} 感情升温 +${gain}（亲密度 ${fr.fav}）`); this.contactsPanel(back);
       }});
-      choices.push({t:`✂️ 与 ${nm} 绝交`, cls:"danger", f:()=>this.cutBrother(id, ()=>this.contactsPanel(back))});
+      choices.push({t:`✂️ 与 ${nm} 绝交`, cls:"danger", f:()=>this.cutBrotherMenu(id, ()=>this.contactsPanel(back))});
     });
     choices.push({t:"↩ 返回", cls:"gold", f:back});
     D({loc:"📇 联系人", lines, choices});
@@ -2917,6 +2923,171 @@ const Game = {
         lines:[[id,"行，从此咱俩一刀两断！",{big:true}],["env",`💔 你与 ${nm} 绝交，兄弟义气受损。${owed?`（欠他的 ${cursym()}${fmt(owed)} 也算清了，但情分没了）`:""}`], ...extra, ["you","道不同，不相为谋。","think"]],
         choices:[{t:"↩ 返回", cls:"gold", f:back}]});
     });
+  },
+
+  /* ===================== 反派兄弟·学期负面事件 + 绝交系统 ===================== */
+  // 学期结算时掷骰：在联系人里的反派各自按"已触发次数"递减概率，至多触发一个
+  _rollVillain(){
+    const s=this.s; this._pendingVillain=null;
+    const present=VILLAINS.filter(id=>s.friends[id]);
+    if(!present.length) return;
+    for(const id of present){
+      if(id==="garf" && s.flags.warnedGarf) continue;   // 勇哥护卫队：免疫加菲猫精神内耗
+      const fr=s.friends[id]; const n=fr.triggers||0;
+      const base = id==="ang"?0.4:0.5;
+      const prob = clamp(base*Math.pow(0.55,n), 0.04, 0.6);
+      if(Math.random()<prob){ fr.triggers=n+1; this._pendingVillain={id}; break; }
+    }
+  },
+  // 负面事件入口（昂哥走专属支线，其余施加健康负面 + 绝交询问）
+  villainEvent(info, next){
+    const s=this.s; const id=info.id;
+    if(!s.friends[id]) return next();         // 期间已绝交
+    if(id==="ang") return this.angEvent(next);
+    const nm=this.friendInfo(id).nm;
+    let effLines;
+    if(id==="garf"){
+      const hp=rand(6,14); s.health=clamp(s.health-hp,0,100);
+      effLines=[["garf","哥们儿，我又得跟你掏心窝子唠唠我那些破事儿……（一口气倒了三小时苦水）",{big:true}],
+                ["env",`🧠 被加菲猫的负能量精神内耗，健康 -${hp}。`]];
+    } else { // kubi
+      const hp=rand(8,16); s.health=clamp(s.health-hp,0,100);
+      effLines=[["kubi","完了完了……我那篇小论文铁定要挂，毕不了业了，活着真没意思……",{big:true}],
+                ["env",`😩 小苦逼的负能量持续轰炸，你跟着揪心失眠，健康 -${hp}（持续损耗）。`]];
+    }
+    this.render();
+    this.eventSplash({emoji:"😮‍💨", title:"负能量来袭", sub:`${nm} 又来找你了`, color:"#8b98a8"}, ()=>{
+      this._villainCutPrompt(id, effLines, next);
+    });
+  },
+  // 通用：负面效果之后，询问是否绝交（小苦逼可"安慰"）
+  _villainCutPrompt(id, effLines, next){
+    const s=this.s; const nm=this.friendInfo(id).nm;
+    const choices=[];
+    if(id==="kubi") choices.push({t:"🤗 安慰他", sub:"陪他唠唠 · 兄弟义气↑", cls:"gold", f:()=>{
+      const g=this.addStat("bro", rand(4,9)); this.render();
+      this.toast(`你宽慰了他一番，兄弟义气 +${g}`); next();
+    }});
+    choices.push({t:"😶 忍了，先不绝交", sub:"维持关系 · 以后仍可能被波及（概率递减）", f:next});
+    choices.push({t:`✂️ 与 ${nm} 绝交`, sub:"了断了再不受其害", cls:"danger", f:()=>this.cutBrotherMenu(id, next)});
+    D({loc:"😮‍💨 反派兄弟", tw:true, lines:effLines.concat([["env",`要不要就此和 ${nm} 断了来往？`]]), choices});
+  },
+  // 昂哥专属：家长来电找人 → 破门发现他通宵打游戏睡过头
+  angEvent(next){
+    const s=this.s;
+    this.eventSplash({emoji:"📞", title:"昂哥家长来电", sub:"孩子联系不上了", color:"#ff7a3c"}, ()=>{
+      D({loc:"📞 昂哥家长来电", tw:true,
+        lines:[
+          ["env","一个陌生号码打来，是昂哥的家长，语气焦急——"],
+          ["env","「同学你好，你是昂哥的朋友吧？我们好几天联系不上他了，急死了……你方便帮我们去看看他吗？」"],
+        ],
+        choices:[
+          {t:"🙅 拒绝（损失兄弟义气）", cls:"danger", f:()=>{
+            const d=this.addStat("bro", -rand(5,10)); this.render();
+            D({loc:"📞 昂哥家长来电", tw:true,
+              lines:[["env",`你婉拒后挂了电话，心里有点不是滋味……兄弟义气 ${d}。`]],
+              choices:[{t:"▶ 继续", cls:"gold", f:()=>this._villainCutPrompt("ang",[["env","昂哥这朋友，靠不靠谱？"]],next)}]});
+          }},
+          {t:"🚪 答应去找他", sub:"占用本学期时间 · 兄弟义气↑", cls:"gold", f:()=>this.angFind(next)},
+        ]});
+    });
+  },
+  angFind(next){
+    const s=this.s;
+    const t=rand(8,14); s.detentionEnergy=(s.detentionEnergy||0)+t;   // 占用可支配时间
+    const g=this.addStat("bro", rand(5,10)); this.render();
+    this.eventSplash({emoji:"🚪", title:"宿舍破门", sub:"赶去找人！", color:"#ff7a3c"}, ()=>{
+      D({loc:"🚪 宿舍破门", tw:true,
+        lines:[
+          ["env","你二话不说赶到昂哥宿舍，敲门无人应，急了，干脆找人强行把门撬开——"],
+          ["ang","（睡眼惺忪被惊醒）干啥啊！大白天的撬我门？！我通宵打游戏刚睡下，手机静音了！",{big:true}],
+          ["env","原来昂哥只是通宵打游戏、睡过了头。被你吵醒一通起床气，劈头盖脸把你喷了一顿。"],
+        ],
+        choices:[{t:"▶ 无语，告辞", cls:"gold", f:()=>{
+          const d=this.addStat("bro", -rand(6,12)); this.render();
+          D({loc:"🚪 宿舍破门", tw:true,
+            lines:[["env",`你白忙活一场还挨了顿喷。为找他占用本学期 ${t} 点可支配时间，兄弟义气先 +${g}、又 ${d}。`]],
+            choices:[{t:"▶ 继续", cls:"gold", f:()=>this._villainCutPrompt("ang",[["env","昂哥这朋友，留着还是断了？"]],next)}]});
+        }}]});
+    });
+  },
+
+  // 绝交方式：心平气和 / 暴力绝交（需甩棍）
+  cutBrotherMenu(id, back){
+    const s=this.s; const nm=this.friendInfo(id).nm;
+    const choices=[
+      {t:"🕊️ 心平气和绝交", sub:"好聚好散 · 损失兄弟义气", f:()=>this.cutBrother(id, back)},
+    ];
+    if(s.hasBaton) choices.push({t:"🥢 暴力绝交", sub:"不损义气 · 30% 概率被报警", cls:"danger", f:()=>this.violentCut(id, back)});
+    else choices.push({t:"🥢 暴力绝交（需甩棍）", sub:"手里没家伙，下不去手", dis:true, f:()=>{}});
+    choices.push({t:"↩ 再想想", f:back});
+    D({loc:"✂️ 怎么绝交？", tw:true,
+      lines:[["you",`和 ${nm} 这段关系，是好好说断，还是动点真格的？`,"think"]],
+      choices});
+  },
+  // 暴力绝交：不损义气，但 30% 被报警
+  violentCut(id, back){
+    const s=this.s; const nm=this.friendInfo(id).nm;
+    const owed=(s.broLoanFrom===id)?(s.broLoan||0):0;
+    delete s.friends[id];
+    if(s.broLoanFrom===id){ s.broLoan=0; s.broLoanFrom=null; }
+    this.render();
+    const called = Math.random()<0.30;
+    this.eventSplash({emoji:"🥢", title:"暴力绝交", sub:`你把 ${nm} 收拾了一顿`, color:"#ff5b5b"}, ()=>{
+      if(!called){
+        D({loc:"🥢 暴力绝交", tw:true,
+          lines:[["env",`你抄起甩棍，三两下把 ${nm} 打服了，从此两清。${owed?`（欠他的 ${cursym()}${fmt(owed)} 也没人敢再来要了）`:""}`],
+                 ["env","周围没人多事，你全身而退。"]],
+          choices:[{t:"▶ 扬长而去", cls:"gold", f:back}]});
+      } else {
+        this.policeEvent(nm, back);
+      }
+    });
+  },
+  policeEvent(nm, back){
+    D({loc:"🚓 有人报警了！", tw:true,
+      lines:[["env",`没想到 ${nm} 当场报了警，警笛由远及近——你是自首，还是跑路？`]],
+      choices:[
+        {t:"🙋 自首（从轻处理）", sub:"选择拘留 或 罚款", f:()=>this.surrenderMenu(back)},
+        {t:"🏃 逃逸（50% 逃脱）", sub:"赌一把 · 被抓则拘留+罚款", cls:"danger", f:()=>this.flee(back)},
+      ]});
+  },
+  surrenderMenu(back){
+    D({loc:"🚓 自首", tw:true,
+      lines:[["env","你主动投案，态度良好，警方给你两个选项："]],
+      choices:[
+        {t:"⏳ 接受拘留", sub:"本学期可支配时间减少", f:()=>this.penaltyDetain(back)},
+        {t:"💴 缴纳罚款", sub:"破财消灾", f:()=>this.penaltyFine(back)},
+      ]});
+  },
+  penaltyDetain(back){
+    const s=this.s; const t=rand(15,25); s.detentionEnergy=(s.detentionEnergy||0)+t; this.render();
+    D({loc:"⏳ 拘留", tw:true,
+      lines:[["env",`你被拘留了几日。本学期可支配时间 -${t} 点。`]],
+      choices:[{t:"▶ 出来继续", cls:"gold", f:back}]});
+  },
+  penaltyFine(back){
+    const s=this.s; const E=this.econ(); const fine=Math.round(E.live*rand(1,2)+rand(0,E.tooth[1])); s.money=Math.max(0,s.money-fine); this.render();
+    D({loc:"💴 罚款", tw:true,
+      lines:[["env",`你缴纳罚款 ${cursym()}${fmt(fine)}，破财消灾。`]],
+      choices:[{t:"▶ 继续", cls:"gold", f:back}]});
+  },
+  flee(back){
+    const s=this.s; const E=this.econ();
+    if(Math.random()<0.5){
+      this.eventSplash({emoji:"🏃", title:"成功逃脱", sub:"消失在人海", color:"#3fb950"}, ()=>{
+        D({loc:"🏃 逃脱", tw:true, lines:[["env","你撒腿就跑，七拐八绕甩掉了警察，全身而退。"]],
+          choices:[{t:"▶ 继续", cls:"gold", f:back}]});
+      });
+    } else {
+      const t=rand(15,25); s.detentionEnergy=(s.detentionEnergy||0)+t;
+      const fine=Math.round(E.live*rand(1,2)+rand(0,E.tooth[1])); s.money=Math.max(0,s.money-fine); this.render();
+      this.eventSplash({emoji:"🚔", title:"被逮捕", sub:"拘留 + 罚款", color:"#ff5b5b"}, ()=>{
+        D({loc:"🚔 落网", tw:true,
+          lines:[["env",`没跑掉，被按倒在地。拘留处理：本学期可支配时间 -${t} 点；外加罚款 ${cursym()}${fmt(fine)}。`]],
+          choices:[{t:"▶ 继续", cls:"gold", f:back}]});
+      });
+    }
   },
 
   // 给女友送礼物：自定义金额，增加亲密度（边际递减）
@@ -2975,21 +3146,27 @@ const Game = {
     if(shop) lines.push(["env", shop.succ ? `你${shop.what}，办得地道，兄弟们直竖大拇指！（兄弟义气 +${shopBro}）`
                                           : `你${shop.what}，结果买错了被一顿猛喷……（兄弟义气 ${shopBro}）`]);
     else lines.push(["env","你懒得动弹，蹭了顿现成的。"]);
-    // 认识新人：兄弟义气越高、人脉越高，越容易
-    const pool = kind==="hot" ? ["xuzi","feizi","yong"] : ["kong","garf","jenny","kubi"];
-    const unmet = pool.filter(id=>!s.friends[id]);
-    const meetProb = clamp(0.3 + s.bro/160 + s.renmai/220, 0.3, 0.95);
-    if(unmet.length && Math.random()<meetProb) return this.meetPerson(unmet[rand(0,unmet.length-1)], nm, lines);
+    // 集体活动：50% 概率随机强制结交一个新朋友进联系人（不消耗兄弟义气）；其中约半数是反派
+    const allUnmet = Object.keys(PEOPLE).filter(id=>!s.friends[id]);
+    if(allUnmet.length && Math.random()<0.5){
+      const vill = allUnmet.filter(id=>VILLAINS.includes(id));
+      const good = allUnmet.filter(id=>!VILLAINS.includes(id));
+      let bucket;
+      if(vill.length && good.length) bucket = Math.random()<0.5 ? vill : good;  // 50% 反派 / 50% 正派
+      else bucket = vill.length ? vill : good;
+      const pick = bucket[rand(0,bucket.length-1)];
+      return this.meetPerson(pick, nm, lines, true);
+    }
     lines.push(["env",`兄弟${nm}下肚，兄弟义气 +${broGain}。`], ["you","下次再聚！","think"]);
     D({loc:`${s.school} · 兄弟${nm}`, lines, choices:[{t:"↩ 返回", f:()=>this.semesterStart()}]});
   },
-  meetPerson(id, nm, lines){
+  meetPerson(id, nm, lines, forced){
     const s=this.s; const p=PEOPLE[id];
     s.friends[id]={fav:10};
     for(const k in p.get){ this.addStat(k, p.get[k]); }
     this.render();
     lines=lines||[];
-    lines.push(["env","席间还认识了个新朋友——"], [id, p.intro, {big:true}], ["you",`结识【${p.nm}】！（${gainText(p.get)}）`,"think"]);
+    lines.push(["env", forced?"人多嘴杂，半推半就就加了个联系人——（没花你兄弟义气）":"席间还认识了个新朋友——"], [id, p.intro, {big:true}], ["you",`结识【${p.nm}】！（${gainText(p.get)}）`,"think"]);
     // 勇哥：获得「远离加菲猫」警告
     if(id==="yong"){ s.flags.warnedGarf=true; lines.push(["env","🛡️ 获得提示：【远离加菲猫】——往后碰到加菲猫，你能避开他的精神内耗。"]); }
     // 旭子：阿鲁巴队长，降低被阿鲁巴概率
@@ -4133,7 +4310,7 @@ function sceneRaw(html, choices, opts){
   let btns="";
   if(choices&&choices.length){
     btns=`<div class="choices">`+choices.map((c,i)=>
-      `<button class="choice ${c.cls||''}" ${c.id?`id="${c.id}"`:''} data-i="${i}">${c.t}${c.sub?`<span class="sub">${c.sub}</span>`:''}</button>`
+      `<button class="choice ${c.cls||''}" ${c.id?`id="${c.id}"`:''} ${c.dis?'disabled':''} data-i="${i}">${c.t}${c.sub?`<span class="sub">${c.sub}</span>`:''}</button>`
     ).join("")+`</div>`;
   }
   scr.innerHTML=html+btns;
@@ -4174,6 +4351,7 @@ const CHARS={
   kong: {name:"孔老师",  face:"🧑‍🏫", side:"left",  color:"#4dd0e1"},
   garf: {name:"加菲猫",  face:"🐱", side:"left",  color:"#ffcc4d"},
   kubi: {name:"小苦逼",  face:"😩", side:"left",  color:"#8b98a8"},
+  ang:  {name:"昂哥",    face:"🎮", side:"left",  color:"#ff7a3c"},
   jenny:{name:"杰尼龟",  face:"🐢", side:"left",  color:"#3fb950"},
   zhao: {name:"赵老师",  face:"👨‍🏫", side:"left",  color:"#ffcc4d"},
   boss: {name:"老板",    face:"🤵", side:"left",  color:"#bc8cff"},
@@ -4187,9 +4365,12 @@ const PEOPLE={
   kong: {nm:"孔老师",cost:32, get:{renmai:14}, skill:"人脉引荐：结交其他兄弟一律打折", intro:"我孔某人朋友遍天下，往后给你多引荐人脉——交了我，再结交别的兄弟都给你打折。"},
   garf: {nm:"加菲猫",cost:20, get:{eq:6},      skill:"未知", intro:"（堵在宿舍门口）就你们也喝不起星巴克吧？我天天一杯，要不要我请你……开个玩笑。哎你别走啊，陪我唠唠！"},
   kubi: {nm:"小苦逼",cost:16, get:{},          skill:"未知", intro:"唉……活着真没意思，干啥啥不行，倒霉的事儿全让我赶上了。你说人活着到底图个啥呢……"},
+  ang:  {nm:"昂哥", cost:14, get:{},          skill:"未知", intro:"哥们儿叫昂哥！通宵开黑、白天补觉，潇洒得很。交个朋友，以后一起上分。"},
   jenny:{nm:"杰尼龟",cost:32, get:{xuexi:14},  skill:"学霸笔记：学习力↑、考试成绩与通过率↑", intro:"考试范围我都划好了，跟着我稳过。"},
   zhao: {nm:"赵老师",cost:34, get:{},          skill:"炒股入门：解锁「投资理财」", intro:"我炒股二十年，K线图比脸还熟。没学过自动驾驶？没事，跟我学炒股，照样钱生钱。"},
 };
+// 反派兄弟：留在联系人里会每学期随机制造负面效果，可绝交了断
+const VILLAINS=["garf","kubi","ang"];
 function gainText(get){ const L={bro:"兄弟义气",eq:"情商",wuli:"武力值",renmai:"人脉度",xuexi:"学习力"};
   const parts=Object.keys(get).map(k=>`${L[k]||k}+${get[k]}`);
   return parts.length?parts.join("，"):"暂无属性加成"; }
