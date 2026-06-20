@@ -3079,9 +3079,67 @@ const Game = {
     const choices=[];
     if(!f.huoguo)  choices.push({t:`🍲 兄弟火锅（${E.sym}${fmt(per)} + 5点时间）`, sub:"兄弟义气↑ · 可能结识猛人", f:()=>this.doActivity("hot")});
     if(!f.shaokao) choices.push({t:`🍢 兄弟烧烤（${E.sym}${fmt(per)} + 5点时间）`, sub:"兄弟义气↑ · 可能结识贵人", f:()=>this.doActivity("bbq")});
-    if(!choices.length) choices.push({t:"（本学期火锅烧烤都约过了）", f:()=>this.semesterStart()});
+    if(!f.redalert) choices.push({t:"🎮 红警群主之战", sub:"夺回群主宝座 · 提升社交等级 · 每轮一次", f:()=>this.redAlertBattle()});
+    if(!choices.length) choices.push({t:"（本学期的兄弟活动都搞过了）", f:()=>this.semesterStart()});
     choices.push({t:"↩ 返回", f:()=>this.semesterStart()});
     D({loc:"🍻 兄弟活动", lines:[["bro","整一顿？火锅烧烤都成，热闹热闹增进感情。每样花钱之外，还要占 5 点时间（开学在时间界面强制扣）。",{big:true}]], choices});
+  },
+  /* ===================== 红警群主之战（每轮一次） ===================== */
+  redAlertBattle(){
+    const s=this.s; const f=s.semFlags||(s.semFlags={});
+    if(!f.raOpp) f.raOpp = rand(0,1) ? "feizi" : "zhao";       // 随机产生对手，本轮固定
+    const opp=f.raOpp; const oi=this.friendInfo(opp); const winP = opp==="feizi"?0.30:0.70;
+    D({loc:"🎮 红警群主之战", art:"study", tw:true,
+      lines:[
+        [opp, opp==="feizi"?"群主宝座是我的了！有本事来 1v1 红警，赢了再说！":"年轻人，红警我可是老炮儿了。想夺群主？先过我这关。",{big:true}],
+        ["you",`今天的对手是【${oi.nm}】——胜率约 ${Math.round(winP*100)}%。夺回群主宝座，还是认怂？`,"think"],
+      ],
+      choices:[
+        {t:"⚔️ 今天必须夺回群主宝座（消耗5点时间）", sub:`对战 ${oi.nm} · 胜率 ${Math.round(winP*100)}%`, cls:"gold", f:()=>this.redAlertFight(opp, winP)},
+        {t:"🏳️ 我投降了今天（不消耗时间）", sub:"保存实力·不占时间", f:()=>{ f.redalert=true; f.raOpp=null;
+          this.eventSplash({emoji:"🏳️", title:"今日投降", sub:"群主宝座暂且让你", color:"#8b98a8", hold:1300}, ()=>{
+            D({loc:"🎮 红警群主之战", tw:true, lines:[[opp,"哈哈，识相！群主还是我的！",{big:true}],["you","君子报仇，下一轮不晚。","think"]], choices:[{t:"↩ 返回", cls:"gold", f:()=>this.semesterStart()}]});
+          }); }},
+      ]});
+  },
+  redAlertFight(opp, winP){
+    const s=this.s; const f=s.semFlags||(s.semFlags={});
+    f.redalert=true; f.raOpp=null;
+    s.detentionEnergy=(s.detentionEnergy||0)+5;               // 占用 5 点时间
+    const oi=this.friendInfo(opp);
+    if(Math.random()<winP){
+      // 胜：提升社交（兄弟义气）等级，并与手下败将建立兄弟关系
+      this._ensureLvl(); let lvUp=false;
+      if((s.lvl.bro||1)<10){ s.lvl.bro=(s.lvl.bro||1)+1; lvUp=true; }
+      this.addStat("bro", rand(4,8));
+      const extra=[];
+      if(!s.friends[opp]){
+        s.friends[opp]={fav:rand(35,50)}; (s.metEver=s.metEver||{})[opp]=true;
+        const p=PEOPLE[opp]; for(const k in (p.get||{})) this.addStat(k, p.get[k]);
+        this._applyFriendSkill(opp, extra);
+        extra.push(["env",`🤝 不打不相识——${oi.nm} 心服口服，从此跟你称兄道弟！（${gainText(p.get)}）`]);
+      } else {
+        s.friends[opp].fav=clamp((s.friends[opp].fav||0)+rand(8,15),0,100);
+        extra.push(["env",`🤝 你又赢了老对手 ${oi.nm}，交情更铁（亲密度 ${s.friends[opp].fav}）。`]);
+      }
+      this.render();
+      this.eventSplash({emoji:"👑", title:"夺回群主宝座！", sub:`击败 ${oi.nm}${lvUp?" · 社交等级 +1":""}`, color:"#ffcc4d", hold:1900}, ()=>{
+        D({loc:"👑 红警 · 群主归位", art:"study", tw:true,
+          lines:[
+            [opp,"打不过打不过……行，群主你来当，我服了！",{big:true}],
+            ["you",`一波“天启坦克”平推，宝座夺回！${lvUp?"社交等级提升了！":""}`,"think"],
+            ...extra,
+          ],
+          choices:[{t:"↩ 返回", cls:"gold", f:()=>this.semesterStart()}]});
+      });
+    } else {
+      const d=this.addStat("bro", -rand(1,3)); this.render();
+      this.eventSplash({emoji:"💥", title:"基地被爆", sub:`不敌 ${oi.nm}`, color:"#ff5b5b", hold:1500}, ()=>{
+        D({loc:"💥 红警 · 惜败", tw:true,
+          lines:[[opp,"菜就多练！群主还是我！",{big:true}],["you",`手速差了点意思……（兄弟义气 ${d}）下一轮再战！`,"think"]],
+          choices:[{t:"↩ 返回", cls:"gold", f:()=>this.semesterStart()}]});
+      });
+    }
   },
 
   /* ===================== 尝试脱单（学期末按情商定成败） ===================== */
