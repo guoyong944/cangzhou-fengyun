@@ -3881,9 +3881,11 @@ const Game = {
 
   // 获胜条件（衣锦还乡）：中国 单身¥1000万 / 有女友¥500万；英国 单身£200万 / 有女友£100万
   isBuffett(){ const s=this.s;
-    if(s.cur==="GBP") return (s.hasGf && s.money>=1000000) || s.money>=2000000;
+    if(s.cur==="GBP") return s.money>=800000;                 // 伦敦：资产 ≥£80万 → 沧州巴菲特
     return (s.hasGf && s.money>=5000000) || s.money>=10000000;
   },
+  // 伦敦「携手归来」好结局门槛：资产 ≥£50万
+  canLondonHappy(){ return this.s.money>=500000; },
   // 工作收入与毕业证数量挂钩：每张毕业证 +20%
   degreeMult(){ return 1 + 0.2*(this.s.diplomas.length||0); },
   // 上海岗位：只有斯图加特「自动驾驶」方向才解锁量化机构，否则只能进车企
@@ -4696,7 +4698,9 @@ const Game = {
         {t:"📈 选择理财方式", sub:"定投纳指 / 炒币 / 搏一搏", f:()=>{ s.lastResearch=this._readResearch(); this.researchInvestMenu(); }},
         ...((s.canStock)?[{t:"💹 募资理财", sub: s.pendingStock?"已建仓·年底结算":"炒股建仓 / 发行虚拟币·割韭菜", f:()=>{ s.lastResearch=this._readResearch(); this._allocCtx=null; this.financeMenu(()=>this.researcherRound()); }}]:[]),
         {t:"✅ 确定，过这一年", cls:"gold", f:()=>{ s.lastResearch=this._readResearch(); this.researcherResolve(); }},
-        {t:"🌃 见好就收，带她回上海", sub:"圆满收尾", f:()=>this.endingLondonHappy()},
+        this.canLondonHappy()
+          ? {t:"🌃 见好就收，带她回上海", sub:"圆满收尾（资产已达£50万）", f:()=>this.endingLondonHappy()}
+          : {t:"🔒 携手归来（需£50万）", sub:`差 £${fmt(Math.max(0,500000-s.money))} · 继续搬砖`, f:()=>this.toast(`资产达 £50万 才能体面收尾（当前 £${fmt(s.money)}）`)},
       ]});
     this._resSync();
   },
@@ -4785,12 +4789,14 @@ const Game = {
   _researcherSummary(logs){
     const s=this.s;
     if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
-    if(this.isBuffett()) return this.endingBuffett();    // 英国获胜线（单身£200万/有女友£100万）
+    if(this.isBuffett()) return this.endingBuffett();    // 伦敦：资产 ≥£80万 → 沧州巴菲特
     // 注：35 岁斩杀线只在国内触发，英国不设年龄上限
     D({loc:"🔬 研究员 · 年度小结",
       lines:[["env",logs.join("\n")],["you",`现金 ${cursym()}${fmt(s.money)}　健康 ${s.health}　女友亲密度 ${s.gfFavor}`,"think"]],
       choices:[
-        {t:"🌃 见好就收，带她回上海", sub:"圆满收尾", cls:"gold", f:()=>this.endingLondonHappy()},
+        this.canLondonHappy()
+          ? {t:"🌃 见好就收，带她回上海", sub:"圆满收尾（资产已达£50万）", cls:"gold", f:()=>this.endingLondonHappy()}
+          : {t:"🔒 携手归来（需£50万）", sub:`差 £${fmt(Math.max(0,500000-s.money))} · 再干干`, f:()=>this.toast(`资产达 £50万 才能体面收尾（当前 £${fmt(s.money)}）`)},
         {t:"▶ 再干一年", f:()=>this.researcherRound()},
       ]});
   },
