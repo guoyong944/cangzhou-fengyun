@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<title>沧州风云</title>
+<title>斯图加特臭鱼烂虾模拟器</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#2a3340;
@@ -66,7 +66,7 @@
   /* 主区域 */
   #screen{flex:1; padding:16px 14px 24px; display:flex; flex-direction:column; gap:14px;}
   .loc{font-size:12px; letter-spacing:2px; color:var(--accent); font-weight:700;}
-  h1.title{font-size:30px; margin:0; letter-spacing:6px; background:linear-gradient(90deg,#ffcc4d,#ff7a3c);
+  h1.title{font-size:clamp(20px,6.5vw,30px); margin:0; letter-spacing:3px; line-height:1.25; word-break:break-word; background:linear-gradient(90deg,#ffcc4d,#ff7a3c);
     -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:900;}
   .narr{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent);
     border-radius:10px; padding:13px 14px; line-height:1.7; font-size:15px; white-space:pre-wrap;}
@@ -150,7 +150,7 @@
   /* ---------- 角色选择落地页 ---------- */
   .landing #topbar, .landing .toolbar{ display:none !important; }
   .hero{ text-align:center; padding:7vh 6px 2vh; }
-  .hero .logo{ font-size:46px; font-weight:900; letter-spacing:6px; line-height:1.1;
+  .hero .logo{ font-size:clamp(30px,9vw,44px); font-weight:900; letter-spacing:4px; line-height:1.25;
     background:linear-gradient(120deg,#ffcc4d,#ff7a3c,#ff5b8d);
     -webkit-background-clip:text; background-clip:text; color:transparent;
     filter:drop-shadow(0 2px 14px rgba(255,150,60,.4)); animation:heroIn .8s ease both; }
@@ -388,7 +388,7 @@ const Game = {
       creditGoal:120, lineType:"harbin",
       // 进阶数值
       wuli:0, renmai:0, xuexi:0, gfFavor:0, hasGf:false, gfType:null,
-      gfSkipSem:-1, netScam:0, gfLoan:0, gfLoanTaken:false, gaokaoBonus:0, gfOrigin:null,
+      gfSkipSem:-1, netScam:0, gfLoan:0, gfLoanTaken:false, gaokaoBonus:0, gfOrigin:null, gfSince:null,
       // 籍贯天赋
       origin:"hebei", home:"沧州",
       eqMult:1, broMult:1, xuexiMult:1, healthDrainMult:1,
@@ -536,7 +536,7 @@ const Game = {
     }).join("");
     document.getElementById("screen").innerHTML=
       `<div class="hero">
-        <div class="logo">沧 州 风 云</div>
+        <div class="logo">斯图加特臭鱼烂虾<br>模拟器</div>
         <div class="tag">十八岁的盛夏，高考交出第一张人生答卷。<br>从大学到职场，从初恋到三十五岁的命运岔口——<br>这一生，你来过。</div>
         <div class="pick-hint">▾ 先选个出身，天赋随籍贯而定 ▾</div>
       </div>
@@ -721,8 +721,10 @@ const Game = {
   /* ---------- 渲染状态栏 ---------- */
   render(){
     const s=this.s;
+    // 恋爱时长追踪：脱单当年记录起始年龄；分手清零（用于结局报告）
+    if(s.hasGf){ if(s.gfSince==null) s.gfSince=s.age; } else if(s.gfSince!=null){ s.gfSince=null; }
     document.getElementById("ach").innerHTML =
-      `🏮 沧州风云 <span class="badge">🎓 毕业证 ${s.diplomas.length}</span>`+
+      `🏮 斯图加特臭鱼烂虾模拟器 <span class="badge">🎓 毕业证 ${s.diplomas.length}</span>`+
       `<span class="badge">🪪 学生证 ${s.studentIds.length}</span>`+
       (s.hasBaton?`<span class="badge">🥢 甩棍</span>`:``)+
       (s.hasBoots?`<span class="badge">🥾 马丁靴</span>`:``)+
@@ -882,7 +884,7 @@ const Game = {
     this._scene="sceneCangzhou";
     this.mark(()=>this.sceneCangzhou());
     D({
-      loc:`第一关 · ${home()} · 18岁`, title:"沧州风云", art:"cangzhou", tw:true,
+      loc:`第一关 · ${home()} · 18岁`, title:"斯图加特臭鱼烂虾模拟器", art:"cangzhou", tw:true,
       lines:[
         ["env",`盛夏的${home()}，蝉鸣聒噪。高考报名点门口，你攥着报名表。`],
         ["mom",`儿啊，咱户口在${home()}，本地这竞争……一个萝卜八个坑啊。`,{big:true}],
@@ -1107,8 +1109,11 @@ const Game = {
     if(lt==="shanghai") return {p:"上海", t:`第 ${s.shYears||0} 年`};
     if(lt==="nordic") return {p:"🌍 北欧外企", t:`第 ${s.nordicY||0} 年`};
     if(lt==="aachen") return {p:"🎓 亚琛工业大学", t:`博士第 ${s.phdYear||0} 年 · 论文 ${s.papers||0}/5`};
-    // 伦敦虚拟币公司工作期：顶部显示公司而非 UCL
-    if(lt==="london" && s.internProg!=null) return {p:"🪙 伦敦·虚拟币公司", t: s.internRegular?"正式研究员":"实习"};
+    // 伦敦工作期：顶部显示公司而非 UCL（北大哥内推后为顶级投行）
+    if(lt==="london" && s.internProg!=null){
+      if(s.flags.topbank) return {p:"🏛️ 伦敦顶级投行", t:"正式员工"};
+      return {p:"🪙 伦敦·虚拟币公司", t: s.internRegular?"正式研究员":"实习"};
+    }
     if(s.school){
       const emo = lt==="harbin"?"🛠":(lt==="tongji"?"🏛":(lt==="london"?"🇬🇧":"🇩🇪"));
       return {p:emo+" "+s.school, t:this.yrLabelFor(Math.max(1,s.yearInSchool))};
@@ -3062,7 +3067,7 @@ const Game = {
     }
     choices.push({t:"🍻 兄弟活动（火锅 / 烧烤）", sub:"兄弟义气↑ · 各花钱+5点时间 · 可能结识猛人", f:()=>this.broActivityMenu()});
     if(!s.hasGf) choices.push({t:`💘 尝试脱单${s.courtPlan?"（已设策略·可改）":""}`, sub:"网恋 / 图书馆搭讪 · 学期末看情商定成败", f:()=>this.courtMenu(()=>this.semesterStart())});
-    const unmet=Object.keys(PEOPLE).filter(id=>!s.friends[id] && !(s.metEver&&s.metEver[id]));
+    const unmet=Object.keys(PEOPLE).filter(id=>!s.friends[id] && !(s.metEver&&s.metEver[id]) && !PEOPLE[id].hidden);
     if(unmet.length) choices.push({t:"🧲 结识新兄弟（花兄弟义气）", sub:`掏出义气结交新朋友（现有义气 ${s.bro}）`, f:()=>this.recruitMenu(()=>this.semesterStart())});
     choices.push({t:"📇 联系人（女友 / 兄弟）", sub:"查看亲密度 · 维系 / 分手 / 绝交", f:()=>this.contactsPanel(()=>this.semesterStart())});
     if(s.canStock) choices.push({t:"💹 募资理财", sub:"投资理财 / 发行虚拟币", f:()=>this.financeMenu(()=>this.semesterStart())});
@@ -3194,7 +3199,7 @@ const Game = {
   },
   recruitMenu(back){
     const s=this.s;
-    const unmet=Object.keys(PEOPLE).filter(id=>!s.friends[id] && !(s.metEver&&s.metEver[id]));
+    const unmet=Object.keys(PEOPLE).filter(id=>!s.friends[id] && !(s.metEver&&s.metEver[id]) && !PEOPLE[id].hidden);
     if(!unmet.length){ this.toast("能结识的兄弟都认识啦"); return back(); }
     const disc = !!s.friends.kong;
     const choices=unmet.map(id=>{ const p=PEOPLE[id]; const base=p.cost||14; const cost=this.recruitCost(id);
@@ -3547,7 +3552,7 @@ const Game = {
       lines.push(["env",`🪜 酒过三巡，兄弟们一拥而上把你架到栏杆上「阿鲁巴」！胯下生风，健康 -5。${s.friends.xuzi?"":"（结识旭子能少挨几回）"}`]);
     }
     // 集体活动：50% 概率随机强制结交一个新朋友进联系人（不消耗兄弟义气）；其中约半数是反派
-    const allUnmet = Object.keys(PEOPLE).filter(id=>!s.friends[id] && !(s.metEver&&s.metEver[id]));
+    const allUnmet = Object.keys(PEOPLE).filter(id=>!s.friends[id] && !(s.metEver&&s.metEver[id]) && !PEOPLE[id].hidden);
     if(allUnmet.length && Math.random()<0.5){
       const vill = allUnmet.filter(id=>VILLAINS.includes(id));
       const good = allUnmet.filter(id=>!VILLAINS.includes(id));
@@ -4351,7 +4356,7 @@ const Game = {
           s.hasGf?["gf","我们是真正的学术伉俪啦，桃李满天下～",{big:true}]:["you","十年寒窗，终成正果。",{big:true}],
           ["end","【完美结局：学阀世家·衣锦还乡】🎓\n从厂区少年到学术泰斗，著作等身、桃李天下，光宗耀祖。"],
         ],
-        extra:endingStats(s),
+        extra:endingReport(s),
         choices:this._badEndChoices()});
     });
   },
@@ -4543,11 +4548,59 @@ const Game = {
              ["you","work-life balance……工作多了能转正，可她会不高兴；也别忘了社交和健身。","think"]],
       choices:[{t:"▶ 开始实习", cls:"gold", f:()=>this.internRound()}]});
   },
+  // 实习第一阶段：非子引荐他北大同学「北大哥」（消耗兄弟义气）
+  beidaIntro(){
+    const s=this.s; const cost=this.recruitCost("beida");
+    this.eventSplash({emoji:"🕴️", title:"金融城的人脉", sub:"非子提起一位北大同学", color:"#ffd700", hold:1800}, ()=>{
+      D({loc:"🕴️ 伦敦 · 非子来电", tw:true,
+        lines:[
+          ["feizi","哥们儿你也在伦敦？太巧了！我有个北大的同学，人称「北大哥」，在金融城混得风生水起，我给你引荐引荐？",{big:true}],
+          ["you",`认识金融圈的大佬，说不定能内推个好平台……不过请非子牵线得意思意思（消耗兄弟义气 ${cost}）。`,"think"],
+        ],
+        choices:[
+          {t:`🤝 请非子引荐（消耗义气 ${cost}）`, sub:"加入联系人·处好关系或获顶级投行内推", cls:"gold", f:()=>{
+            if(s.bro<cost){ this.toast("兄弟义气不够 🥲"); return this.internRound(); }
+            s.bro=clamp(s.bro-cost,0,100); s.friends.beida={fav:rand(20,30)}; (s.metEver=s.metEver||{}).beida=true;
+            this.addStat("renmai", PEOPLE.beida.get.renmai||0); this.render();
+            this.eventSplash({emoji:"🕴️", title:"北大哥 加入联系人", sub:"金融城的大人物", color:"#ffd700", hold:1800}, ()=>{
+              D({loc:"🤝 结识北大哥", tw:true,
+                lines:[["beida", PEOPLE.beida.intro, {big:true}],
+                       ["env","💡 多在「📇 联系人」里请北大哥吃饭、提升好友度——好友度越高，越有机会被他内推进【伦敦顶级投行】（薪水更高）。"]],
+                choices:[{t:"▶ 开始实习", cls:"gold", f:()=>this.internRound()}]});
+            });
+          }},
+          {t:"🙅 算了，靠自己", f:()=>this.internRound()},
+        ]});
+    });
+  },
+  // 北大哥内推成功 → 跳槽伦敦顶级投行（薪水大涨，直接转为正式员工）
+  topbankRefer(){
+    const s=this.s;
+    s.internRegular=true; s.flags.topbank=true;
+    s.internSalary=Math.max(Math.round(s.internSalary*2.4), 14000); s.incomeY=s.internSalary*12;
+    this.render();
+    this.endingSplash({emoji:"🏛️", title:"伦敦顶级投行 · 内推成功", sub:`北大哥拉你进圈 · 月薪 £${fmt(s.internSalary)}`, color:"#ffd700"}, ()=>{
+      D({loc:"🏛️ 伦敦顶级投行 · 入职", tw:true,
+        lines:[
+          ["beida","成了！我跟 HR 打过招呼，你这背景稳进。以后就是一个圈子的人了，好好干！",{big:true}],
+          ["env",`🎉 北大哥内推成功——你直接以正式员工身份加入【伦敦顶级投行】，月薪跃升至 £${fmt(s.internSalary)}！`],
+          ["you","金融城的大门，总算为我敞开了。","think"],
+        ],
+        choices:[{t:"💼 开始投行生涯", cls:"gold", f:()=>this.researcherRound()}]});
+    });
+  },
   // 实习：参照读书的多项时间分配（工作/社交/女友/健身），余力休息回血
   internRound(){
     const s=this.s;
     if(s.flags.longDistanceNew) return this._longDistSplash(()=>this.internRound());
     if(s.internRegular) return this.researcherRound(); // 转正后 → 正式研究员
+    // 实习第一阶段：若联系人里有非子 → 触发额外好友「北大哥」（非子的同学）
+    if(!s.flags.beidaOffered && s.friends.feizi && !s.friends.beida){ s.flags.beidaOffered=true; return this.beidaIntro(); }
+    // 北大哥好友度够高 → 有概率获得内推，进入伦敦顶级投行
+    if(s.friends.beida && !s.flags.topbankReferred){
+      const fav=s.friends.beida.fav||0;
+      if(fav>=40 && Math.random()<clamp((fav-30)/120, 0.05, 0.6)){ s.flags.topbankReferred=true; return this.topbankRefer(); }
+    }
     this._scene="internRound"; const sym=cursym();
     const cats=[{k:"work",nm:"工作",sub:"转正进度·加薪"},{k:"social",nm:"社交",sub:"兄弟义气/人脉"},{k:"love",nm:"女友",sub:"维系亲密度"},{k:"fit",nm:"健身",sub:"恢复健康·抗衰老"}];
     const init=s.lastIntern||{work:50,social:15,love:25,fit:10};
@@ -4849,7 +4902,7 @@ const Game = {
                  :["you","一个人，也终于把这一千万搞定了。",{big:true}],
           ["end",`【结局：${home()}巴菲特】🏆\n从厂区少年到财务自由，${home()}出了个巴菲特。`],
         ],
-        extra:endingStats(s),
+        extra:endingReport(s),
         choices:this._badEndChoices()});
     });
   },
@@ -4909,7 +4962,7 @@ const Game = {
           ["gf","绕了大半个地球，还是和你在一起最好。",{big:true}],
           ["end","【结局：携手归来】🌆💞\n感情与事业都没落下——这一局，赢得漂亮。"],
         ],
-        extra:endingStats(s),
+        extra:endingReport(s),
         choices:this._badEndChoices()});
     });
   },
@@ -5071,6 +5124,7 @@ const CHARS={
   ang:  {name:"昂哥",    face:"🎮", side:"left",  color:"#ff7a3c"},
   jenny:{name:"杰尼龟",  face:"🐢", side:"left",  color:"#3fb950"},
   zhao: {name:"赵老师",  face:"👨‍🏫", side:"left",  color:"#ffcc4d"},
+  beida:{name:"北大哥",  face:"🕴️", side:"left",  color:"#ffd700"},
   boss: {name:"老板",    face:"🤵", side:"left",  color:"#bc8cff"},
   hr2:  {name:"量化 HR",  face:"🧑‍💼", side:"left",  color:"#bc8cff"},
 };
@@ -5085,6 +5139,7 @@ const PEOPLE={
   ang:  {nm:"昂哥", cost:14, get:{},          skill:"未知", intro:"哥们儿叫昂哥！通宵开黑、白天补觉，潇洒得很。交个朋友，以后一起上分。"},
   jenny:{nm:"杰尼龟",cost:32, get:{xuexi:14},  skill:"学霸笔记：学习力↑、考试成绩与通过率↑", intro:"考试范围我都划好了，跟着我稳过。"},
   zhao: {nm:"赵老师",cost:34, get:{},          skill:"炒股入门：解锁「投资理财」", intro:"我炒股二十年，K线图比脸还熟。没学过自动驾驶？没事，跟我学炒股，照样钱生钱。"},
+  beida:{nm:"北大哥",cost:40, get:{renmai:16}, hidden:true, skill:"顶级投行内推：好友度够高有概率内推入职伦敦顶级投行", intro:"久仰久仰！非子的兄弟就是我的兄弟。我在伦敦金融城混了些年头，圈子里还算说得上话——好好处，有机会拉你进个好平台。"},
 };
 // 反派兄弟：留在联系人里会每学期随机制造负面效果，可绝交了断
 const VILLAINS=["garf","kubi","ang"];
@@ -5223,6 +5278,33 @@ function endingStats(s){
 兄弟义气 ${s.bro}　·　情商 ${s.eq}　·　事业度 ${s.career}
 🪪 学生证 ${s.studentIds.length} 张${s.studentIds.length?"（"+s.studentIds.join("、")+"）":""}
 🎓 毕业证 ${s.diplomas.length} 张${s.diplomas.length?"（"+s.diplomas.join("、")+"）":""}</div>`;
+}
+// 通关结局：全屏详细游戏报告（仅好结局展示）
+function endingReport(s){
+  const sym=s.cur==="EUR"?"€":(s.cur==="GBP"?"£":"¥");
+  const broIds=Object.keys(s.friends||{});
+  const broNames=broIds.map(id=>(PEOPLE[id]&&PEOPLE[id].nm)||id).join("、")||"——";
+  const tn={meinu:"美女",fujie:"富姐",xueba:"贤内助",net:"网恋对象"};
+  let loveMain, loveSub;
+  if(s.hasGf){
+    const dur=(s.gfSince!=null)?Math.max(0,(s.age||0)-s.gfSince):null;
+    loveMain=`💞 与「${tn[s.gfType]||"女友"}」携手${dur!=null?` ${dur} 年`:""}`;
+    loveSub=`亲密度 ${s.gfFavor}${s.gfWarned?" · ⚠️ 关系亮红灯":" · 感情稳定"}`;
+  } else { loveMain="💔 孑然一身"; loveSub="终究没把那个人留在身边"; }
+  const row=(emoji,label,val,sub)=>`<div style="display:flex;align-items:baseline;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line)">
+      <span style="font-size:18px;width:24px;text-align:center">${emoji}</span>
+      <span style="flex:0 0 84px;color:var(--dim);font-size:13px">${label}</span>
+      <span style="flex:1;min-width:0"><b style="color:var(--gold);font-size:16px">${val}</b>${sub?`<br><small style="color:var(--dim);font-size:12px">${sub}</small>`:""}</span>
+    </div>`;
+  return `<div style="background:linear-gradient(160deg,#171b22,#0d1014);border:1px solid var(--gold);border-radius:14px;padding:14px 16px;box-shadow:0 0 24px rgba(255,204,77,.15)">
+    <div style="text-align:center;font-size:17px;font-weight:900;color:var(--gold);letter-spacing:2px;margin-bottom:4px">🎮 人生通关报告</div>
+    <div style="text-align:center;font-size:12px;color:var(--dim);margin-bottom:10px">${s.home||"沧州"}少年 · ${s.age} 岁 · 健康 ${s.health}</div>
+    ${row("💰","最终资产",`${sym}${fmt(s.money)}`, "")}
+    ${row("🎓","毕业证",`${s.diplomas.length} 张`, s.diplomas.length?s.diplomas.join("、"):"未获得")}
+    ${row("🪪","学生证",`${s.studentIds.length} 张`, s.studentIds.length?s.studentIds.join("、"):"未获得")}
+    ${row("🤝","兄弟",`${broIds.length} 位`, broNames)}
+    ${row("❤️","情感状态", loveMain, loveSub)}
+  </div>`;
 }
 
 /* 监听屏幕方向变化（战斗时刷新） */
