@@ -428,7 +428,7 @@ const Game = {
       const liveByCity={braunschweig:1000, stuttgart:1200, munich:1500};
       const live=liveByCity[this.s.lineType] ?? 1200;
       return {sym:"€", live, workRate:120, workRand:[0,1500], internBase:26,
-              tooth:[60,400], schHi:1500, schMid:600, socUnit:130, socMax:8000, socStep:200};
+              tooth:[60,400], schHi:10000, schMid:3000, socUnit:130, socMax:8000, socStep:200};
     }
     return {sym:"¥", live:2500, workRate:120, workRand:[0,800], internBase:78,
          tooth:[500,2500], schHi:8000, schMid:3000, socUnit:1000, socMax:60000, socStep:1000};
@@ -450,6 +450,7 @@ const Game = {
       }
       // 非单身且女友不在新国家 → 进入异国异地恋（维系更难，可在学期初发动邀请）
       if(s.hasGf && s.gfOrigin && s.gfOrigin.cur && s.gfOrigin.cur!==target){
+        if(!s.flags.longDistance) s.flags.longDistanceNew=true; // 刚开启 → 触发全屏提醒
         s.flags.longDistance=true;
       }
     }
@@ -591,6 +592,23 @@ const Game = {
   // 升到下一级所需经验：随等级递增（lv1→2 需 100，lv9→10 需 500）；满十级
   xpNeed(lvl){ return lvl>=10 ? Infinity : 50+50*lvl; },
   _lvl(k){ const s=this.s; s.lvl=s.lvl||{career:1,xuexi:1,bro:1,eq:1}; return s.lvl[k]||1; },
+  // 把妹能力（情商等级）越高，各种方式增加女友亲密度的程度越大（Lv1→1.0，Lv10→约2.1）
+  _gfGainMult(){ return 1 + (this._lvl("eq")-1)*0.12; },
+  // 异国异地恋开启时的全屏动画提醒（在安全节点触发，避免与后续场景冲突）
+  _longDistSplash(next){
+    const s=this.s;
+    if(!s.flags.longDistanceNew){ return next(); }
+    s.flags.longDistanceNew=false;
+    return this.eventSplash({emoji:"🌧️", title:"异国异地恋", sub:"聚少离多·感情更难维系", color:"#ff8ecb", hold:2000}, ()=>{
+      D({loc:"💔 异地恋开始", tw:true,
+        lines:[
+          ["env","你和女友天各一方，正式进入异国异地恋——往后维系满意度更难、下降更快。"],
+          ["env","💡 可在「📇 联系人」页面发动「✈️ 邀请团聚」，成功率取决于当前亲密度。"],
+          ["you","别让距离把我们拖散了。","think"],
+        ],
+        choices:[{t:"▶ 知道了", cls:"gold", f:next}]});
+    });
+  },
   // 分配项 → 对应技能 key（用于在滑块旁显示 Lv）
   _lvForCat(k){ return this._lvl(({study:"xuexi",intern:"career",work:"career",friend:"bro",flirt:"eq"})[k]||"xuexi"); },
   _ensureLvl(){ const s=this.s; s.xp=s.xp||{career:0,xuexi:0,bro:0,eq:0}; s.lvl=s.lvl||{career:1,xuexi:1,bro:1,eq:1};
@@ -1089,6 +1107,8 @@ const Game = {
     if(lt==="shanghai") return {p:"上海", t:`第 ${s.shYears||0} 年`};
     if(lt==="nordic") return {p:"🌍 北欧外企", t:`第 ${s.nordicY||0} 年`};
     if(lt==="aachen") return {p:"🎓 亚琛工业大学", t:`博士第 ${s.phdYear||0} 年 · 论文 ${s.papers||0}/5`};
+    // 伦敦虚拟币公司工作期：顶部显示公司而非 UCL
+    if(lt==="london" && s.internProg!=null) return {p:"🪙 伦敦·虚拟币公司", t: s.internRegular?"正式研究员":"实习"};
     if(s.school){
       const emo = lt==="harbin"?"🛠":(lt==="tongji"?"🏛":(lt==="london"?"🇬🇧":"🇩🇪"));
       return {p:emo+" "+s.school, t:this.yrLabelFor(Math.max(1,s.yearInSchool))};
@@ -1316,6 +1336,8 @@ const Game = {
   },
   studyYear(){
     const s=this.s;
+    // 异国异地恋刚开启 → 全屏提醒
+    if(s.flags.longDistanceNew) return this._longDistSplash(()=>this.studyYear());
     // 彩蛋：集齐 5 张学生证（哈工大威海/不伦瑞克/慕尼黑/斯图加特/UCL）→ 立刻触发「游戏人生」
     if(!s.flags.lifeEgg && this.lifeEggReady()){ s.flags.lifeEgg=true; return this.lifeEggSplash(()=>this.studyYear()); }
     const resuming=this._resuming; this._resuming=false; // 续档回到本学期：不重复推进学期数
@@ -1557,6 +1579,7 @@ const Game = {
     if(s.canStock) choices.push({t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财", sub: s.pendingStock?"本年度已投，等结算":"每年一次·本金锁定到年底", f:()=>{ this._budgetMoney=this._readMoney(); this.stockGame(()=>this.budgetPlan(credits,yrLabel,makeup)); }});
     choices.push({t:"🛍 道具购买", sub:"马丁靴/大背头·甩棍与汽车仅斯图加特", f:()=>{ this._budgetMoney=this._readMoney(); this.itemShop(()=>this.budgetPlan(credits,yrLabel,makeup)); }});
     choices.push({t:"🏦 借钱周转（贷款 / 借钱）", sub:"助学贷款·兄弟借钱·高利贷·搏一搏", id:"loanBtn", f:()=>{ this._budgetMoney=this._readMoney(); this.cantAfford(credits, yrLabel, makeup); }});
+    if(this.germanStudy()) choices.push({t:"↩ 回到活动规划", sub:"兄弟活动 / 脱单 / 人脉 / 理财", f:()=>{ this._budgetMoney=this._readMoney(); this._resuming=true; this.semesterStart(); }});
     D({
       loc:`${s.school} · ${yrLabel} · 💰 预算规划`,
       lines:[
@@ -1821,7 +1844,7 @@ const Game = {
         else if(s.gfOrigin.line!==s.lineType){ sat-=6; distNote="异地恋"; }  // 同国异地
       }
       if(distNote) logs.push(`🌧 ${distNote}·聚少离多，维系格外吃力（满意度 -${s.gfOrigin.cur!==s.cur?11:6}）`);
-      if(sat>=0){ const up=this.addStat("gfFavor", Math.round(2+sat*0.4)); logs.push(`💞 用心经营，女友亲密度 +${up}`); }
+      if(sat>=0){ const up=this.addStat("gfFavor", Math.round((2+sat*0.4)*this._gfGainMult())); logs.push(`💞 用心经营，女友亲密度 +${up}`); }
       else { const down=Math.round((-sat)*0.7+rand(1,3)); s.gfFavor=clamp(s.gfFavor-down,0,100); logs.push(`💔 维系投入不足，女友亲密度 -${down}`); }
 
       // ---- 类型专属收益 / 支出 ----
@@ -1851,7 +1874,7 @@ const Game = {
 
       // ---- 汽车：帮女神搬家、带去 Kaufland 买菜 → 好感稳涨（油费另计） ----
       if(s.hasGf && s.hasCar){
-        const up=this.addStat("gfFavor", rand(4,8));
+        const up=this.addStat("gfFavor", Math.round(rand(4,8)*this._gfGainMult()));
         const fuel=Math.round(E.live*0.4); s.money=Math.max(0,s.money-fuel);
         logs.push(`🚗 开车帮她搬家、去 Kaufland 买菜，女友亲密度 +${up}（油费 -${E.sym}${fmt(fuel)}）`);
       }
@@ -3006,7 +3029,7 @@ const Game = {
     // 电车 / 自动驾驶：回上海按专业选岗
     D({loc:"斯图加特 · 启程",
       lines:[["env","德国的日子结束了。回上海，闯一闯。"]],
-      choices:[{t:"🌃 回上海发展", sub:"按专业选择岗位", cls:"gold", f:()=>this.shanghaiJobMenu()}]});
+      choices:[{t:"🌃 回上海发展", sub:"按专业选择岗位", cls:"gold", f:()=>this.transition({emoji:"🛫", title:"学成归国", sub:"告别德意志 · 奔赴上海", color:"#bc8cff", hold:2000}, ()=>this.shanghaiJobMenu())}]});
   },
 
   /* ===================== 学期初活动 ===================== */
@@ -3020,6 +3043,10 @@ const Game = {
   semesterStart(){
     this._scene="semesterStart";
     const s=this.s; const E=this.econ(); const f=s.semFlags||(s.semFlags={});
+    // 结识赵老师解锁炒股 → 立刻全屏动画提醒「募资理财」已开放（无需手动打开）
+    if(s.flags.stockUnlockPending){ s.flags.stockUnlockPending=false;
+      return this.skillUnlock({emoji:"💹", title:"募资理财·已解锁", color:"#ffcc4d",
+        desc:"赵老师传授炒股，「募资理财」从此开放！每年可投资理财，日后还能发行虚拟币募资。"}, ()=>this.semesterStart()); }
     const picked=(s.semActivities||[]).length;
     const lines=[["bro",`${this.yrLabelFor(s.yearInSchool+1)}开学前，安排一下这学期：兄弟活动、脱单、人脉，再去预算规划与上课。`,{big:true}]];
     if(picked) lines.push(["env",`本学期已约：${s.semActivities.map(k=>k==="hot"?"火锅":"烧烤").join("、")}（开学扣 ${E.sym}${fmt(this.activityCost())}，强制占用时间 ${this.activityEnergy()}）`]);
@@ -3148,8 +3175,8 @@ const Game = {
     }
     if(id==="zhao"){
       if(s.major!=="ad" && !s.canStock){
-        s.canStock=true;
-        out.push(["env","📈 赵老师手把手教你炒股入门——解锁【投资理财】技能！每年学期初可投资，本金锁定、年底结算。"]);
+        s.canStock=true; s.flags.stockUnlockPending=true; // 返回学期初时全屏动画提醒
+        out.push(["env","📈 赵老师手把手教你炒股入门——解锁【募资理财】技能！每年学期初可投资，本金锁定、年底结算。"]);
       } else if(s.canStock && !s.flags.zhaoStockBoost){
         // 已经会炒股（自动驾驶方向自带）→ 赵老师传授进阶心法：提升炒股收益 + 割韭菜成功率
         s.flags.zhaoStockBoost=true; s.flags.zhaoScamBoost=true;
@@ -3221,7 +3248,11 @@ const Game = {
     const row=(left,btns)=>`<div style="display:flex;align-items:center;gap:6px;padding:8px 2px;border-bottom:1px dashed var(--line)"><span style="flex:1;font-size:14px;min-width:0">${left}</span>${btns}</div>`;
     const rows=[];
     // 女友 / 单身
-    if(s.hasGf) rows.push(row(`💗 女友（${tn[s.gfType]||"女友"}）<b style="color:var(--pink)">（${s.gfFavor}）</b>${s.gfWarned?' ⚠️':''}`, cbtn("🎁送礼物","Game.cGift()")+cbtn("💔分手","Game.cBreak()",true)));
+    if(s.hasGf){
+      const ld = this.isLongDistance();
+      const inviteBtn = ld ? cbtn(`✈️团聚${s.semFlags&&s.semFlags.inviteTried?"(已试)":""}`,"Game.cInvite()") : "";
+      rows.push(row(`💗 女友（${tn[s.gfType]||"女友"}）<b style="color:var(--pink)">（${s.gfFavor}）</b>${s.gfWarned?' ⚠️':''}${ld?' 🌧️异地':''}`, cbtn("🎁送礼物","Game.cGift()")+inviteBtn+cbtn("💔分手","Game.cBreak()",true)));
+    }
     else rows.push(`<div style="padding:8px 2px;border-bottom:1px dashed var(--line);font-size:14px;color:var(--dim)">💗 感情状态：单身</div>`);
     // 兄弟
     const ids=Object.keys(s.friends||{});
@@ -3238,6 +3269,7 @@ const Game = {
       choices:[{t:"↩ 返回", cls:"gold", f:back}]});
   },
   cGift(){ this.giftGf(this._contactsBack); },
+  cInvite(){ this.inviteGfOver(()=>this.contactsPanel(this._contactsBack)); },
   cBreak(){ this.breakUp({sub:"你主动结束了这段关系", lines:[["you","对不起，我们还是分开吧。","think"],["env","💔 你主动提出了分手。面板已切回「情商」。"]]}, this._contactsBack); },
   cCut(id){ this.cutBrotherMenu(id, ()=>this.contactsPanel(this._contactsBack)); },
   cTreat(id){
@@ -3465,9 +3497,9 @@ const Game = {
           const amt=clamp(Math.round(+(document.getElementById("giftAmt")||{}).value||0),0,max);
           if(amt<=0){ this.toast("金额要大于 0"); return; }
           s.money-=amt;
-          // 1% 现金 = 1 点（每点最低 per）；再经 addStat 近 100 的边际递减
+          // 1% 现金 = 1 点（每点最低 per）；把妹能力越高加成越大；再经 addStat 近 100 的边际递减
           const raw=Math.floor(amt/per);
-          const up=this.addStat("gfFavor", Math.max(1, raw));
+          const up=this.addStat("gfFavor", Math.max(1, Math.round(raw*this._gfGainMult())));
           s.semGiftN=(s.semGiftN||0)+1;
           this.render();
           this.eventSplash({emoji:"💝", title:"礼物已送达", sub:`女友亲密度 +${up}`, color:"#ff8ecb", hold:1500}, ()=>{
@@ -3508,8 +3540,9 @@ const Game = {
     if(shop) lines.push(["env", shop.succ ? `你${shop.what}，办得地道，兄弟们直竖大拇指！（兄弟义气 +${shopBro}）`
                                           : `你${shop.what}，结果买错了被一顿猛喷……（兄弟义气 ${shopBro}）`]);
     else lines.push(["env","你懒得动弹，蹭了顿现成的。"]);
-    // 兄弟活动有较低概率被阿鲁巴（结识旭子/请旭子吃饭后概率进一步下降）；被阿鲁巴健康 -5
-    if(Math.random()<this.arubaProb(0.18)){
+    // 被阿鲁巴概率：积极参与(买菜买肉) 30%，懒得动了 10%（结识旭子/请旭子吃饭后进一步下降）；健康 -5
+    const arubaBase = shop ? 0.30 : 0.10;
+    if(Math.random()<this.arubaProb(arubaBase)){
       s.health=clamp(s.health-5,0,100); this.render();
       lines.push(["env",`🪜 酒过三巡，兄弟们一拥而上把你架到栏杆上「阿鲁巴」！胯下生风，健康 -5。${s.friends.xuzi?"":"（结识旭子能少挨几回）"}`]);
     }
@@ -3855,11 +3888,14 @@ const Game = {
     this._scene="shanghaiHub";
     const s=this.s;
     this.mark(()=>this.shanghaiHub()); // 命运抉择点（供坏结局回滚）
+    if(s.flags.longDistanceNew) return this._longDistSplash(()=>this.shanghaiHub());
     if(this.isBuffett()) return this.endingBuffett();
     // 回上海第一年，若单身：老妈催婚，介绍相亲对象脱单
     if(s.shYears===0 && !s.hasGf && !s.flags.momMarriage){ s.flags.momMarriage=true; return this.momMarriageEvent(); }
+    // 留学带回来的车：回国工作时处理（半价卖 / 送兄弟）
+    if(s.shYears===0 && s.hasCar && !s.flags.carReturned){ s.flags.carReturned=true; return this.carReturnEvent(); }
     // 注意：不在入口判定破产——刚入职还没发薪，破产判定放在"推进一年"领薪之后
-    const target = s.hasGf ? "女友 + ¥500万" : "¥1000万（已单身）";
+    const target = s.hasGf ? "守住女友 + 攒够 ¥500万" : "单身攒够 ¥1000万";
     const choices=[];
     if(s.canStock) choices.push({t:"💹 募资理财", sub:"投资理财 / 发行虚拟币", f:()=>this.financeMenu(()=>this.shanghaiHub())});
     else choices.push({t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财", sub: s.pendingStock?"本年度已投，推进一年才结算":"每年一次·本金锁定到年底", f:()=>this.stockGame(()=>this.shanghaiHub())});
@@ -3868,7 +3904,7 @@ const Game = {
     D({loc:"🌃 上海", art:"shanghai",
       lines:[
         ["env",`上海 · 第 ${s.shYears} 年　职业：${this.jobMeta(s.job).nm}　资产 ¥${fmt(s.money)}`],
-        ["you",`巴菲特目标：${target}。继续搞钱。`,"think"],
+        ["you",`🏆 冲击「${home()}巴菲特」结局：${target}。继续搞钱！`,"think"],
       ],
       choices});
   },
@@ -3901,6 +3937,39 @@ const Game = {
     });
   },
 
+  // 留学期间买的车：回国工作时处理——半价卖掉 / 送给兄弟
+  carReturnEvent(){
+    const s=this.s; const sell=30000; const ids=Object.keys(s.friends||{});
+    const choices=[
+      {t:`💰 半价卖掉（+¥${fmt(sell)}）`, sub:"留学开的车，回国回点血", cls:"gold", f:()=>{ s.hasCar=false; s.money+=sell; this.render();
+        this.eventSplash({emoji:"🚗", title:"卖掉爱车", sub:`+¥${fmt(sell)}`, color:"#ffcc4d", hold:1500}, ()=>{
+          D({loc:"🚗 处理爱车", tw:true, lines:[["env",`你把德国带回的车半价出手，落袋 ¥${fmt(sell)}。`],["you","在上海地铁挤挤也挺好。","think"]], choices:[{t:"↩ 回上海", cls:"gold", f:()=>this.shanghaiHub()}]});
+        }); }},
+    ];
+    if(ids.length) choices.push({t:"🎁 送给兄弟", sub:"顺水人情·兄弟义气大涨", f:()=>this.carGiveMenu()});
+    choices.push({t:"🅿️ 先留着", sub:"停在老家", f:()=>this.shanghaiHub()});
+    D({loc:"🚗 留学带回的车", art:"shanghai", tw:true,
+      lines:[
+        ["env","你从德国留学时买的那辆车也运回了国内。回上海打拼，养车停车都是负担——半价出手回点血，还是顺水人情送给兄弟？"],
+        ["you","卖了换现金，还是送兄弟攒人情？","think"],
+      ],
+      choices});
+  },
+  carGiveMenu(){
+    const s=this.s; const ids=Object.keys(s.friends||{});
+    const choices=ids.map(id=>{ const fr=s.friends[id]; const nm=this.friendInfo(id).nm;
+      return {t:`${this.friendInfo(id).face} 送给 ${nm}`, sub:`亲密度 ${fr.fav||0} → 大涨`, f:()=>{
+        s.hasCar=false; const up=clamp((fr.fav||0)+rand(15,25),0,100)-(fr.fav||0); fr.fav=clamp((fr.fav||0)+rand(15,25),0,100); this.addStat("bro",rand(5,10)); this.render();
+        this.eventSplash({emoji:"🤝", title:"仗义送车", sub:`${nm} 感动不已`, color:"#ff7a3c", hold:1600}, ()=>{
+          D({loc:"🤝 仗义疏财", tw:true,
+            lines:[[id,"哥们儿这……这车我可就收下了，够意思！",{big:true}],["env",`🚗 你把车送给了 ${nm}，兄弟义气大涨，${nm} 亲密度升至 ${fr.fav}。`]],
+            choices:[{t:"↩ 回上海", cls:"gold", f:()=>this.shanghaiHub()}]});
+        });
+      }};
+    });
+    choices.push({t:"↩ 返回", f:()=>this.carReturnEvent()});
+    D({loc:"🎁 送车给哪位兄弟", lines:[["you","这车送给哪位兄弟好呢？","think"]], choices});
+  },
   // 上海·一年时间规划（参照读书的多项分配：工作/社交/女友/健身）
   shanghaiYearPlan(){
     const s=this.s;
@@ -4352,7 +4421,7 @@ const Game = {
       D({loc:"🧧 合肥支线 · 婚礼请柬", art:"shanghai", tw:true,
         lines:[["xuzi","哥们儿我要结婚啦！合肥办酒，你必须来！",{big:true}],["you","随份子，还是装没看见……","think"]],
         choices:[
-          {t:"✈️ 去！（-¥2000）", cls:"gold", f:()=>{ s.flags.hefeiDone=true; s.money=Math.max(0,s.money-2000); this.render();
+          {t:"✈️ 去！（-¥2000）", cls:"gold", f:()=>{ s.flags.hefeiDone=true; s.money=Math.max(0,s.money-2000); this._hefeiHeal=0; this.render();
             this.transition({emoji:"✈️", title:"启程合肥", sub:"千里赴喜宴", color:"#ffcc4d"}, ()=>this.hefeiStory()); }},
           {t:"🙈 婉拒", sub:"兄弟义气↓", cls:"danger", f:()=>{ s.flags.hefeiDone=true; this.change({bro:-12});
             this.eventSplash({emoji:"🙈", title:"婉拒喜宴", sub:"兄弟义气受损", color:"#8b98a8", hold:1500}, ()=>this.shanghaiHub()); }}
@@ -4363,8 +4432,8 @@ const Game = {
     D({loc:"🍲 合肥 · 旭子婚礼", art:"shanghai", tw:true,
       lines:[["xuzi","兄弟，赏脸当我伴郎呗？",{big:true}],["you","当不当伴郎呢……","think"]],
       choices:[
-        {t:"🙋 接受当伴郎", sub:"兄弟义气↑↑", cls:"gold", f:()=>{ this.change({bro:10}); this.hefeiTaxi(); }},
-        {t:"😪 懒得当了", sub:"兄弟义气小涨", f:()=>{ this.change({bro:3}); this.hefeiEnd(); }}
+        {t:"🙋 接受当伴郎", sub:"兄弟义气↑↑ · 玩得尽兴", cls:"gold", f:()=>{ this.change({bro:10}); this._hefeiHeal=(this._hefeiHeal||0)+16; this.hefeiTaxi(); }},
+        {t:"😪 懒得当了", sub:"兄弟义气小涨", f:()=>{ this.change({bro:3}); this._hefeiHeal=(this._hefeiHeal||0)+6; this.hefeiEnd(); }}
       ]});
   },
   hefeiTaxi(){
@@ -4376,15 +4445,22 @@ const Game = {
           ["you","赶不及了……放兄弟鸽子，还是硬着头皮折腾过去？","think"],
         ],
         choices:[
-          {t:"📵 放兄弟鸽子（真来不了）", sub:"兄弟义气↓", cls:"danger", f:()=>{ this.change({bro:-8}); this.hefeiEnd(); }},
-          {t:"🏃 硬着头皮赶过去", sub: s.hasGf?"耽误约会，女友亲密度↓":"折腾一身", f:()=>{ if(s.hasGf) this.change({gfFavor:-8}); else this.change({health:-3}); this.hefeiEnd(); }}
+          {t:"📵 放兄弟鸽子（真来不了）", sub:"兄弟义气↓ · 扫兴", cls:"danger", f:()=>{ this.change({bro:-8}); this._hefeiHeal=(this._hefeiHeal||0)-8; this.hefeiEnd(); }},
+          {t:"🏃 硬着头皮赶过去", sub: s.hasGf?"耽误约会，女友亲密度↓":"折腾一身但圆满", f:()=>{ if(s.hasGf) this.change({gfFavor:-8}); else this.change({health:-3}); this._hefeiHeal=(this._hefeiHeal||0)+10; this.hefeiEnd(); }}
         ]});
     });
   },
   hefeiEnd(){
-    this.eventSplash({emoji:"🍲", title:"铁锅炖管够！", sub:"喜宴圆满", color:"#ffcc4d", hold:1700}, ()=>{
+    const s=this.s;
+    // 兄弟相聚·美好时光 → 恢复健康（恢复程度取决于沿途的具体选择）
+    const want=Math.max(0, this._hefeiHeal||0); this._hefeiHeal=0;
+    const before=s.health; s.health=clamp(s.health+want,0,100); const got=s.health-before;
+    this.eventSplash({emoji:"🍲", title:"兄弟相聚 · 美好时光", sub: got>0?`身心舒畅 · 健康 +${got}`:"喜宴圆满", color:"#ffcc4d", hold:1800}, ()=>{
+      this.render();
       D({loc:"🍲 合肥 · 铁锅炖", art:"shanghai", tw:true,
-        lines:[["xuzi","管它呢，今儿个高兴，铁锅炖管够！",{big:true}],["you","江湖路远，有兄弟就值。","think"]],
+        lines:[["xuzi","管它呢，今儿个高兴，铁锅炖管够！",{big:true}],
+               got>0?["env",`😌 和老兄弟推杯换盏、彻夜长谈，烦恼一扫而空——健康恢复 +${got}。`]:["env","喜宴热闹收场。"],
+               ["you","江湖路远，有兄弟就值。","think"]],
         choices:[{t:"↩ 回上海", cls:"gold", f:()=>this.shanghaiHub()}]});
     });
   },
@@ -4399,14 +4475,20 @@ const Game = {
         ["boss","喂？哦……那个远程 offer 啊，我们预算砍了，先不招了哈。",{big:true}],
         ["you","什么?! 临了给我放鸽子？到了伦敦可就没收入了……","think"],
       ],
-      choices:[ ...beat, {t:"😤 忍下这口气，做决定", f:()=>this.londonDecide()} ]});
+      choices:[ ...beat, {t:"😤 忍气吞声，做决定", sub:"憋出内伤 · 健康 -10", f:()=>{
+        const s=this.s; const hp=Math.min(10, s.health); s.health=clamp(s.health-10,0,100); this.render();
+        this.eventSplash({emoji:"😮‍💨", title:"忍气吞声", sub:`憋出内伤 · 健康 -${hp}`, color:"#8b98a8", hold:1500}, ()=>this.londonDecide());
+      }} ]});
   },
   beatBoss(){
     const s=this.s; this.change({wuli:2}); s.flags.beatBoss=true; // 殴打领导：日后回上海求职会被这位「面试官」一眼认出
-    D({loc:"🥢 算账", tw:true,
-      lines:[["env","你抄起甩棍堵到老板楼下，一顿输出，对方抱头鼠窜、连声赔礼。"],
-             ["you","痛快！这口恶气总算出了……不过这梁子，算是结下了。",{big:true}]],
-      choices:[{t:"▶ 继续", cls:"gold", f:()=>this.londonDecide()}]});
+    const hp=clamp(s.health+20,0,100)-s.health; s.health=clamp(s.health+20,0,100); this.render();
+    this.eventSplash({emoji:"🥢", title:"出了恶气", sub:`畅快淋漓 · 健康 +${hp}`, color:"#ffcc4d", hold:1500}, ()=>{
+      D({loc:"🥢 算账", tw:true,
+        lines:[["env",`你抄起甩棍堵到老板楼下，一顿输出，对方抱头鼠窜、连声赔礼。出了这口恶气，浑身舒坦，健康 +${hp}。`],
+               ["you","痛快！这口恶气总算出了……不过这梁子，算是结下了。",{big:true}]],
+        choices:[{t:"▶ 继续", cls:"gold", f:()=>this.londonDecide()}]});
+    });
   },
   londonDecide(){
     const s=this.s;
@@ -4464,6 +4546,7 @@ const Game = {
   // 实习：参照读书的多项时间分配（工作/社交/女友/健身），余力休息回血
   internRound(){
     const s=this.s;
+    if(s.flags.longDistanceNew) return this._longDistSplash(()=>this.internRound());
     if(s.internRegular) return this.researcherRound(); // 转正后 → 正式研究员
     this._scene="internRound"; const sym=cursym();
     const cats=[{k:"work",nm:"工作",sub:"转正进度·加薪"},{k:"social",nm:"社交",sub:"兄弟义气/人脉"},{k:"love",nm:"女友",sub:"维系亲密度"},{k:"fit",nm:"健身",sub:"恢复健康·抗衰老"}];
@@ -4503,7 +4586,7 @@ const Game = {
     // 社交 → 兄弟义气/人脉
     if(a.social>0){ const g=this.addStat("bro", Math.round(a.social*0.12)); this.addStat("renmai", Math.round(a.social*0.06)); if(g) logs.push(`🍻 社交，兄弟义气 +${g}`); }
     // 女友 → 亲密度（投入<25 则下降）
-    const gd=Math.round(((a.love||0)-25)*0.5); s.gfFavor=clamp(s.gfFavor+gd,0,100); logs.push(`${gd>=0?"💞":"💔"} 陪伴女友，亲密度 ${gd>=0?"+":""}${gd}`);
+    let gd=Math.round(((a.love||0)-25)*0.5); if(gd>0) gd=Math.round(gd*this._gfGainMult()); s.gfFavor=clamp(s.gfFavor+gd,0,100); logs.push(`${gd>=0?"💞":"💔"} 陪伴女友，亲密度 ${gd>=0?"+":""}${gd}`);
     // 健身 + 余力休息 → 健康（抵消年龄损耗）
     const cap=100; const used=(a.work||0)+(a.social||0)+(a.love||0)+(a.fit||0);
     const heal=Math.round((a.fit||0)*0.2) + (used<cap?Math.round((cap-used)*0.18):0);
@@ -4614,7 +4697,7 @@ const Game = {
     // 社交→兄弟义气/人脉
     if(a.social>0){ const g=this.addStat("bro", Math.round(a.social*0.1)); this.addStat("renmai", Math.round(a.social*0.06)); if(g) logs.push(`🍻 社交，兄弟义气 +${g}`); }
     // 女友→亲密度
-    const gd=Math.round((a.love-30)*0.4); s.gfFavor=clamp(s.gfFavor+gd,0,100); logs.push(`${gd>=0?"💞":"💔"} 陪伴女友，亲密度 ${gd>=0?"+":""}${gd}`);
+    let gd=Math.round((a.love-30)*0.4); if(gd>0) gd=Math.round(gd*this._gfGainMult()); s.gfFavor=clamp(s.gfFavor+gd,0,100); logs.push(`${gd>=0?"💞":"💔"} 陪伴女友，亲密度 ${gd>=0?"+":""}${gd}`);
     // 健身→健康（抵消年龄损耗）
     const adrain=this.ageHealthDrain(); const heal=Math.round(a.fit*0.18); const net=heal-adrain;
     s.health=clamp(s.health+net,0,100); logs.push(`🏋️ 健身 +${heal}　⏳ 年龄损耗 -${adrain}（净 ${net>=0?"+":""}${net}）`);
@@ -4650,7 +4733,7 @@ const Game = {
     const s=this.s;
     if(s.money<=0) return this.endingDelivery("伦敦坐吃山空");
     if(this.isBuffett()) return this.endingBuffett();    // 英国获胜线（单身£200万/有女友£100万）
-    if(s.age>=35) return this.endingDelivery("35 岁仍未上岸");
+    // 注：35 岁斩杀线只在国内触发，英国不设年龄上限
     D({loc:"🔬 研究员 · 年度小结",
       lines:[["env",logs.join("\n")],["you",`现金 ${cursym()}${fmt(s.money)}　健康 ${s.health}　女友亲密度 ${s.gfFavor}`,"think"]],
       choices:[
