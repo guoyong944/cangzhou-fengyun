@@ -318,8 +318,7 @@
   <div id="screen"></div>
   <div class="toolbar">
     <button onclick="Game.openContacts()">📇 联系人</button>
-    <button onclick="Game.save()">💾 存档</button>
-    <button onclick="Game.confirmRestart()">🔄 重新开始</button>
+    <button onclick="Game.confirmRestart()">🔄 重新投胎</button>
   </div>
 </div>
 <div class="float" id="float"></div>
@@ -410,6 +409,10 @@ const Game = {
       semTreated:[],           // 本学期已请过吃饭、领过能力加成的人（每学期限一次）
       xuziTreats:0,            // 请旭子吃饭次数（持续降低被阿鲁巴概率）
       coin:null,               // 发行虚拟币割韭菜：{investors:{id:amt}, total}
+      originPicked:false,      // 是否已选角色（未选不写存档，避免刷新跳过选人）
+      thesisChosen:false, thesisVenue:null, // 德国硕士毕业论文：企业/学校
+      gymThisSem:false,        // 本学期是否办了健身卡（学期末回血）
+      countryFirstSem:false,   // 换国家后首学期（禁止实习，专注学习）
     };
   },
 
@@ -439,6 +442,7 @@ const Game = {
   moveCountry(target){
     const s=this.s;
     if(s.cur!==target){
+      s.countryFirstSem=true; // 换国家后第一学期禁止实习，专注学习
       if((s.career||0)>0){
         s.career=Math.round(s.career/2);
         s.flags.moveHalved=true; // 供入境动画提示
@@ -601,6 +605,10 @@ const Game = {
   isBachelor(){ return ["harbin","tongji","braunschweig"].includes(this.s.lineType); },
   // 一个结算周期的月数：本科按学年(12个月)，硕士按学期(6个月)
   monthsPerTerm(){ return this.isMaster() ? 6 : 12; },
+  // 默认选课学分：硕士每学期 30，本科每学年 45
+  defaultCredits(){ return this.isMaster() ? 30 : 45; },
+  // 德国硕士：是否进入「毕业论文」阶段（仅剩最后 30 学分，慕尼黑/斯图加特）
+  isThesisStage(){ const s=this.s; return (s.lineType==="munich"||s.lineType==="stuttgart") && s.creditsEarned>=s.creditGoal-30 && s.creditsEarned<s.creditGoal; },
   // 时间线：18岁=2012年，年龄每+1岁则年份+1
   curYear(){ return 2012 + ((this.s.age||18) - 18); },
   // 德国/海外读书期间（兄弟社交开放）
@@ -715,11 +723,9 @@ const Game = {
     ];
     if(debt>0) st.push(["债务", cursym()+fmt(debt), "", null, "bg-red"]);
     st.push(["健康", s.health, bar(s.health, 100, s.health<60?"var(--red)":"var(--green)"), "health", s.health<60?"warnflash":""]);
-    // 兄弟义气紧挨情商/女友亲密度
-    st.push(["兄弟义气", s.bro, bar(s.bro,100,"var(--gold)"), "bro", ""]);
-    st.push(this.partnered() ? ["女友亲密度", s.gfFavor, bar(s.gfFavor,100,"var(--pink)"), "gfFavor", ""]
-                             : ["情商", s.eq, bar(s.eq,100,"var(--blue)"), "eq", ""]);
-    st.push(["事业度", s.career, bar(s.career,100,"var(--purple)"), "career", ""]);
+    // 兄弟义气/情商/事业度/学习力已改为经验等级制（见分配界面 Lv.），顶部不再显示数值
+    // 仅保留女友亲密度（恋爱关系计量，非等级制）
+    if(this.partnered()) st.push(["女友亲密度", s.gfFavor, bar(s.gfFavor,100,"var(--pink)"), "gfFavor", ""]);
     // 读书阶段才显示：已修 / 已挂学分（红黄绿，两者相邻）；工作阶段隐藏
     if(studying){
       const pct=s.creditsEarned/s.creditGoal;
@@ -729,8 +735,6 @@ const Game = {
     }
     if(s.renmai>0)  st.push(["人脉度", s.renmai, bar(s.renmai,100,"#4dd0e1"), "renmai", ""]);
     if(s.wuli>0)    st.push(["武力值", s.wuli, bar(s.wuli,100,"var(--red)"), "wuli", ""]);
-    // 学习力仅读书阶段显示；工作后不再显示
-    if(s.xuexi>0 && studying) st.push(["学习力", s.xuexi, bar(s.xuexi,100,"#9ccc65"), "xuexi", ""]);
     const dlt=this._statDeltas||{};
     let dIdx=0;
     document.getElementById("stats").innerHTML = st.map(([l,v,b,key,bg])=>{
@@ -1018,7 +1022,7 @@ const Game = {
     const s=this.s;
     s.school="同济大学"; s.gpaSys="cn100";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=120; s.lineType="tongji";
+    s.creditGoal=180; s.lineType="tongji";
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
     this.transition({emoji:"🏛", title:"同济大学", sub:"关卡通过 · 名校录取", color:"#ffcc4d"}, ()=>{
@@ -1053,7 +1057,7 @@ const Game = {
     this.s.school="哈工大（威海）"; this.s.gpaSys="cn100";
     this.s.creditsEarned=0; this.s.creditsFailed=0; this.s.yearInSchool=0;
     this.s.gpaTotal=0; this.s.gpaCount=0;
-    this.s.creditGoal=120; this.s.lineType="harbin";
+    this.s.creditGoal=180; this.s.lineType="harbin";
     if(!this.s.studentIds.includes(this.s.school)){ this.s.studentIds.push(this.s.school); }
     this.render();
     this.transition({emoji:"🛠", title:"哈工大 · 威海", sub:"关卡通过 · 金榜题名", color:"#58a6ff"}, ()=>{
@@ -1213,7 +1217,7 @@ const Game = {
       ],
       choices:[
         {t:"💻 网恋（线上脱单）", sub:"足不出户·甜言蜜语", f:()=>this.gfNetlove()},
-        {t:"🌸 现实里找对象", sub:"美女 / 富姐 / 学霸", cls:"gold", f:()=>this.gfRealMenu()},
+        {t:"🌸 现实里找对象", sub:"美女 / 富姐 / 女室友", cls:"gold", f:()=>this.gfRealMenu()},
         {t:"🧍 继续单身", sub:"专心学业事业", f:()=>{ this.s.gfSkipSem=this.s.yearInSchool+1; this.studyYear(); }}
       ]});
   },
@@ -1233,17 +1237,21 @@ const Game = {
       choices:[
         {t:"💃 美女", sub:"花钱多 → 收益：身体健康", cls:"gold", f:()=>this.gfPick("meinu")},
         {t:"💎 富姐", sub:"费时间 → 随机零花钱·可无息借钱", f:()=>this.gfPick("fujie")},
-        {t:"🤓 学霸", sub:"均衡 → 提升学习成绩", f:()=>this.gfPick("xueba")},
+        {t:"👩‍🎓 女室友", sub:"将宿舍改书房·提升学习能力", f:()=>this.gfPick("xueba")},
         {t:"↩ 再想想", f:()=>this.gfUnlock()}
       ]});
   },
+  // 女室友(xueba)攻略成功：把宿舍改成书房，学习等级 +1（仅当未满级）
+  _xuebaWinPerk(){ const s=this.s; this._ensureLvl(); if((s.lvl.xuexi||1)<10){ s.lvl.xuexi=(s.lvl.xuexi||1)+1; this.toast("👩‍🎓 宿舍改书房，学习等级 +1！"); } this.addStat("xuexi", rand(3,6)); },
   gfPick(type){
     const s=this.s;
-    s.hasGf=true; s.gfType=type; s.gfFavor=60; s.gfWarned=false; s.gfOrigin={cur:s.cur, line:s.lineType}; this.render();
+    s.hasGf=true; s.gfType=type; s.gfFavor=60; s.gfWarned=false; s.gfOrigin={cur:s.cur, line:s.lineType};
+    if(type==="xueba") this._xuebaWinPerk();
+    this.render();
     const intro={
       meinu:["gf","人家可是要富养的哦～带我吃好的、穿好的，我天天给你好心情！",{big:true}],
       fujie:["gf","姐有的是钱，缺的是陪伴。多花时间陪我，零花钱管够，缺钱了开口就行～",{big:true}],
-      xueba:["gf","图书馆见？我陪你刷题，绩点交给我，咱俩一起卷！",{big:true}],
+      xueba:["gf","我搬进来跟你做室友啦～把房间改成书房，咱俩一起卷，学习能力蹭蹭涨！",{big:true}],
     }[type];
     D({loc:"🌸 在一起了", art:"study",
       lines:[
@@ -1294,9 +1302,15 @@ const Game = {
     const resuming=this._resuming; this._resuming=false; // 续档回到本学期：不重复推进学期数
     // 已修满学分 → 直接毕业，绝不再开新学期（修复：达标后又被带进下学期，含读档场景）
     if(this.studying() && s.creditsEarned>=s.creditGoal) return this.graduate();
+    // 德国硕士：仅剩最后 30 学分 → 进入「毕业论文」专属流程（不再普通选课）
+    if(this.isThesisStage() && !s.thesisChosen) return this.thesisStart();
     // 情商达标且单身 → 每学期开学询问是否找对象（德国读书期改用「尝试脱单」主动玩法，这里不再弹）
     if(!resuming && !this.germanStudy() && !s.hasGf && (s.eq||0)>=45 && s.gfSkipSem!==s.yearInSchool+1){
       return this.gfUnlock();
+    }
+    // 健康过低（<50）→ 开学提醒，可办健身卡（学期末回血）
+    if(!resuming && this.studying() && s.health<50 && !s.gymThisSem && !s.semGymAsked){
+      s.semGymAsked=true; return this.gymOfferMenu(()=>this.studyYear());
     }
     this._scene="studyYear";
     if(!resuming) s.yearInSchool++;
@@ -1308,6 +1322,88 @@ const Game = {
     this._budgetWork=null;
     this.budgetPlan(null, this.yrLabelFor(Math.max(1,s.yearInSchool)), false);
   },
+
+  /* ===================== 健康过低·办健身卡（学期末恢复已损失健康一半） ===================== */
+  gymOfferMenu(back){
+    const s=this.s;
+    const isBro=!!s.friends.kong;
+    const kongPrice = s.cur==="EUR"?(isBro?600:700) : (s.cur==="GBP"?(isBro?540:630) : (isBro?4800:5600));
+    const gymPrice  = s.cur==="EUR"?500 : (s.cur==="GBP"?450 : 4000);
+    const buy=(price,via)=>{
+      if(s.money<price) return this.offerQuickLoan(price, ()=>this.gymOfferMenu(back));
+      s.money-=price; s.gymThisSem=true; s.detentionEnergy=(s.detentionEnergy||0)+20; this.render();
+      this.eventSplash({emoji:"🏋️", title:"办了健身卡", sub:via, color:"#3fb950", hold:1600}, ()=>{
+        D({loc:"🏋️ 健身卡", tw:true,
+          lines:[["env",`办卡花了 ${cursym()}${fmt(price)}（${via}），本学期锁定 20 点时间健身。学期末将立刻恢复「已损失健康」的一半。`]],
+          choices:[{t:"▶ 继续", cls:"gold", f:back}]});
+      });
+    };
+    D({loc:"🩺 健康预警", tw:true,
+      lines:[
+        ["env",`⚠️ 你的健康已跌到 ${s.health}（低于 50）。要不要本学期办张健身卡？锁定 20 点时间，学期末立刻恢复「已损失健康」的一半。`],
+        ["you","身体是革命的本钱……练一练？","think"],
+      ],
+      choices:[
+        {t:`🧑‍🏫 在孔老师那办（${cursym()}${fmt(kongPrice)}/学期）`, sub:isBro?"已结为兄弟·折扣价":"与孔老师结为兄弟可享折扣", cls:"gold", f:()=>buy(kongPrice,"孔老师渠道")},
+        {t:`🏋️ 健身房原价办（${cursym()}${fmt(gymPrice)}）`, sub:"原价办卡", f:()=>buy(gymPrice,"健身房原价")},
+        {t:"🙅 这学期先不办", f:back},
+      ]});
+  },
+
+  /* ===================== 德国硕士·毕业论文（最后30学分） ===================== */
+  // 企业论文申请成功率：取决于事业度与成绩（德国制 1.0 最佳）
+  thesisCompanyProb(){
+    const s=this.s; const g=parseFloat(avgGpa(s))||4;
+    return clamp(0.15 + (s.career||0)/180 + (5-g)/4*0.35, 0.1, 0.95);
+  },
+  thesisStart(){
+    const s=this.s; this._scene="studyYear";
+    const prob=Math.round(this.thesisCompanyProb()*100);
+    this.transition({emoji:"📄", title:"毕业论文", sub:"最后 30 学分 · 决定去向", color:"#bc8cff"}, ()=>{
+      D({loc:`${s.school} · 毕业论文`, art: s.lineType==="munich"?"munich":"stuttgart", tw:true,
+        lines:[
+          ["prof2","到写毕业论文的时候了——这最后 30 学分，是去企业做，还是留在学校做？",{big:true}],
+          ["env","🏢 企业论文：需要申请（看事业度+成绩），成功后每月 €1000 工资。\n🎓 学校论文：100% 接收，但没有工资。\n论文作为一门课，不会挂科，最终成绩在 1.0~2.0 之间。"],
+        ],
+        choices:[
+          {t:`🏢 申请企业论文（成功率 ${prob}%）`, sub:"成功每月€1000 · 看事业度与成绩", cls:"gold", f:()=>this.thesisApplyCompany()},
+          {t:"🎓 留在学校做论文", sub:"100% 接收 · 无工资", f:()=>this.thesisDo("school", false)},
+        ]});
+    });
+  },
+  thesisApplyCompany(){
+    const s=this.s;
+    if(Math.random()<this.thesisCompanyProb()){
+      this.eventSplash({emoji:"🏢", title:"企业论文·录用", sub:"每月 €1000 工资", color:"#3fb950", hold:1700}, ()=>this.thesisDo("company", true));
+    } else {
+      this.eventSplash({emoji:"🚫", title:"企业论文·被拒", sub:"事业度/成绩还差点", color:"#ff5b5b", hold:1700}, ()=>{
+        D({loc:`${s.school} · 申请被拒`, tw:true,
+          lines:[["prof2","企业那边没要你……没关系，留校做也一样毕业，就是没工资。",{big:true}]],
+          choices:[{t:"🎓 留在学校做论文", cls:"gold", f:()=>this.thesisDo("school", false)}]});
+      });
+    }
+  },
+  // 论文学期：扣生活费（企业论文发工资），评定 1.0~2.0 成绩，补满 30 学分 → 毕业
+  thesisDo(venue, salaried){
+    const s=this.s; const E=this.econ(); s.thesisChosen=true; s.thesisVenue=venue;
+    s.yearInSchool++; if(this.isMaster() && s.yearInSchool%2===0) s.age++;
+    const months=6; const logs=[];
+    const living=E.live*months; s.money=Math.max(0,s.money-living); logs.push(`🏠 论文期生活开销 -€${fmt(living)}`);
+    if(salaried){ const pay=1000*months; s.money+=pay; this.autoRepayAtWork(logs); logs.push(`🏢 企业论文工资 +€${fmt(pay)}（€1000/月）`); }
+    // 成绩 1.0~2.0：事业度/学习力越高越好（越接近 1.0）
+    const skill=((s.career||0)+(s.xuexi||0))/2;
+    const grade=Math.round(clamp(2.0 - skill/100*1.0 - (Math.random()*0.3), 1.0, 2.0)*10)/10;
+    s.gpaTotal+=grade; s.gpaCount++; s.lastGpa=grade;
+    s.creditsEarned=Math.min(s.creditGoal, s.creditsEarned+30);
+    logs.push(`📄 毕业论文完成！成绩 ${grade}（1.0最佳），获得 30 学分。`);
+    this.render();
+    this.eventSplash({emoji:"📄", title:"毕业论文完成", sub:`成绩 ${grade} · ${venue==="company"?"企业":"学校"}`, color:"#7ee787", hold:1900}, ()=>{
+      D({loc:`${s.school} · 论文答辩通过`, tw:true,
+        lines:[["env",logs.join("\n")],["prof2","答辩通过，恭喜你，可以毕业了！",{big:true}]],
+        choices:[{t:"🎓 毕业", cls:"gold", f:()=>this.graduate()}]});
+    });
+  },
+
   // 读取合并界面上的「本学期学分」（数字输入优先，可超出滑块范围；补课等固定场景回退到入参）
   _readCredits(fallback){
     const n=document.getElementById("creditsNum");
@@ -1321,6 +1417,8 @@ const Game = {
 
   /* 实习每点月薪（按当地经济基准 × 涨薪倍率） */
   internMonthlyPerPoint(){ return Math.round(this.econ().internBase * (this.s.internRaiseMult||1)); },
+  // 是否已解锁「有偿实习」：实习能力达到 Lv2（Lv1 为无偿实习）
+  paidIntern(){ return this._lvl("career")>=2; },
 
   /* 时间精力 + 金钱 分配 */
   allocateYear(credits, yrLabel, makeup){
@@ -1332,11 +1430,12 @@ const Game = {
     const fewLeft = remain>0 && remain<40;          // 临近毕业，剩余不足一学期下限
     const cmin = 1;                                  // 最低可拖到 1 学分（想轻松一学期就少选点）
     const cmax = fewLeft ? Math.max(5, Math.ceil(remain/5)*5) : 80;
-    let cbase = this._chosenCredits!=null ? this._chosenCredits : (credits!=null ? credits : (fewLeft?cmax:60));
+    let cbase = this._chosenCredits!=null ? this._chosenCredits : (credits!=null ? credits : (fewLeft?cmax:this.defaultCredits()));
     const cdef = clamp(cbase, cmin, cmax);
     const cnumMax=Math.max(cmax, goal);
+    const pickLabel = this.isMaster()?"本学期选课":"本学年选课";
     const creditBlock = pick ? `<div class="credit-pick" style="margin-bottom:2px">
-        <div style="font-size:13px;color:var(--dim);margin-bottom:3px">📘 本学期选课　已修 ${s.creditsEarned}/${goal}${s.creditsFailed?`　·　挂科 ${s.creditsFailed}/30`:""}</div>
+        <div style="font-size:13px;color:var(--dim);margin-bottom:3px">📘 ${pickLabel}　已修 ${s.creditsEarned}/${goal}${s.creditsFailed?`　·　挂科 ${s.creditsFailed}/30`:""}</div>
         <div class="big"><input type="number" id="creditsNum" value="${cdef}" min="${cmin}" max="${cnumMax}" inputmode="numeric"
             style="width:96px;background:#0a0d12;border:1px solid var(--line);border-radius:8px;color:var(--gold);font-weight:900;font-size:38px;text-align:center;padding:2px 4px"
             oninput="Game._creditNumSync()"><small style="font-size:16px;color:var(--dim)"> 学分</small></div>
@@ -1344,17 +1443,15 @@ const Game = {
           oninput="Game._creditRangeSync()">
         <div class="hint">${fewLeft?`🎓 只差 ${remain} 学分即可毕业 · 可只选所需学分`:`滑块 ${cmin}–${cmax}，也可直接输入数字`}　·　修够 ${goal} 立刻毕业${s.gpaSys==="de5"?"　·　每门课 4–6 学分":""}</div>
       </div>` : "";
-    const careerOK = s.career>=20;
-    // 收入型时间（实习/打工）已在预算界面锁定，这里只读展示
-    const ek = careerOK ? "intern" : "work";
-    const ekNm = careerOK ? "实习" : "打工";
-    const lockedWork = this._budgetWork||0;
+    const careerOK = this.paidIntern();
+    // 实习时间已在预算界面锁定，这里只读展示
+    const ek = "intern";
+    const ekNm = "实习";
+    const lockedWork = s.countryFirstSem ? 0 : (this._budgetWork||0);
     const isFujie = s.hasGf && s.gfType==="fujie";
     const cats=[
       {k:"study", nm:"学习", sub:"提升通过率·成绩"},
     ];
-    // 事业度<20 时，「无偿实习」仍是一项可分配时间（攒事业度、无收入）；收入型的「打工」已锁进预算
-    if(!careerOK) cats.push({k:"intern", nm:"实习", sub:"无偿积累(事业度<20)"});
     cats.push({k:"friend", nm:"交友", sub:"兄弟义气"});
     // 富姐：维系时间最低 15，可向上加陪伴；其余女友/单身正常给滑块
     if(isFujie) cats.push({k:"flirt", nm:"维系富姐", sub:"最低15点·可向上加陪伴", min:15});
@@ -1374,7 +1471,7 @@ const Game = {
         ["bro", `💰 预算已规划（${ekNm} ${lockedWork} 点已锁定、社交开支 ${cursym()}${fmt((this._budgetMoney&&((this._budgetMoney.friend||0)+(this._budgetMoney.flirt||0)))||0)}、还债 ${cursym()}${fmt((this._budgetMoney&&this._budgetMoney.repay)||0)}）。\n🏠 本学期基础生活成本 ${E.sym}${fmt(E.live)}/月。`],
       ],
       extra:`${creditBlock}<div class="alloc" id="alloc">
-        <div class="row"><div class="nm">${ekNm} <span style="color:var(--gold);font-size:11px">Lv.${this._lvl("career")}</span><small>已在预算锁定</small></div>
+        <div class="row"><div class="nm">${ekNm} <span style="color:var(--gold);font-size:11px">Lv.${this._lvl("career")}</span><small>${s.countryFirstSem?"换国家首学期·禁止实习":(careerOK?"有偿实习·已在预算锁定":"无偿实习(Lv1)·攒经验")}</small></div>
           <div style="flex:1;color:var(--dim);font-size:12px;padding-left:2px">🔒 占用 <b style="color:var(--gold)">${lockedWork}</b> 点精力（回预算规划可改）</div>
           <div class="amt">${lockedWork}</div></div>
         ${cats.map(c=>`<div class="row">
@@ -1411,14 +1508,18 @@ const Game = {
   /* 预算规划：投资 / 道具 / 借钱 / 社交开支 + 收支平衡（在“开始上课”之前） */
   budgetPlan(credits, yrLabel, makeup){
     const s=this.s; const E=this.econ();
-    this._allocCtx={credits, yrLabel, E, careerOK:s.career>=20, makeup:!!makeup};
+    const paid=this.paidIntern();
+    this._allocCtx={credits, yrLabel, E, careerOK:paid, makeup:!!makeup};
     const moneyMax=Math.min(s.money, E.socMax);
-    // 打工/实习时间放在预算界面（直接影响收支平衡），数值会在选课时间界面被锁定扣除
-    const ek = s.career>=20 ? "intern" : "work";
-    const ekNm = s.career>=20 ? "实习" : "打工";
-    const ekSub = s.career>=20 ? `已开启 · 每点≈${E.sym}${fmt(this.internMonthlyPerPoint())}/月` : "稳定低收入 · 攒事业度";
+    // 实习时间放在预算界面（直接影响收支平衡），数值会在选课时间界面被锁定扣除
+    const banIntern = !!s.countryFirstSem; // 换国家后第一学期禁止实习
+    const ek = "intern";
+    const ekNm = "实习";
+    const ekSub = banIntern ? "换国家首学期·专注学习（禁止实习）"
+                : paid ? `有偿实习(Lv${this._lvl("career")}) · 每点≈${E.sym}${fmt(this.internMonthlyPerPoint())}/月`
+                : "无偿实习(Lv1) · 攒经验，升到 Lv2 解锁有偿";
     const la0 = s.lastAlloc || {study:40,intern:0,work:0,friend:20,flirt:0};
-    const bwVal = this._budgetWork!=null ? this._budgetWork : (la0[ek]||0);
+    const bwVal = banIntern ? 0 : (this._budgetWork!=null ? this._budgetWork : (la0.intern||0));
     const bm=this._budgetMoney||(this._budgetMoney={friend:0,flirt:0,repay:0});
     const debt=this.totalDebt();
     const repayMax=Math.max(0, Math.min(s.money, debt));
@@ -1443,9 +1544,9 @@ const Game = {
         ["bro",`开学前先把钱袋子盘一盘：社交开支、还债、要不要投资/置办行头/借钱周转。\n🏠 本学期基础生活成本 ${E.sym}${fmt(E.live)}/月。`,{big:true}],
       ],
       extra:`<div class="alloc">
-        <div style="font-size:13px;margin-bottom:4px">⏱ ${ekNm}时间（占精力 · 决定收入）</div>
+        <div style="font-size:13px;margin-bottom:4px">⏱ ${ekNm}时间（占精力${paid?" · 决定收入":" · 攒经验"}）</div>
         <div class="row"><div class="nm">${ekNm} <span style="color:var(--gold);font-size:11px">Lv.${this._lvl("career")}</span><small>${ekSub}</small></div>
-          <input type="range" id="bwRange" min="0" max="100" step="5" value="${bwVal}" oninput="Game._bpSync()">
+          <input type="range" id="bwRange" min="0" max="100" step="5" value="${bwVal}" ${banIntern?"disabled":""} oninput="Game._bpSync()">
           <div class="amt" id="bwAmt">${bwVal}</div></div>
         <div style="font-size:13px;margin:10px 0 4px">💰 社交开支预算</div>
         <div class="row"><div class="nm">交友花钱</div>
@@ -1472,20 +1573,19 @@ const Game = {
     const m=this._readMoney();
     const ms=document.getElementById("moneySpend"); if(ms) ms.textContent=cursym()+fmt((m.friend||0)+(m.flirt||0));
     const el=document.getElementById("budget"); if(!el) return;
-    const ek=this.s.career>=20?"intern":"work";
     const alloc=Object.assign({study:0,intern:0,work:0,friend:0,flirt:0}, this.s.lastAlloc||{study:40,friend:20});
-    alloc[ek]=work;
+    alloc.intern=work;
     const p=this._projectBudget(alloc, m); const sym=cursym(); const bad=p.endBal<0;
     const lb=document.getElementById("loanBtn"); if(lb) lb.classList.toggle("blink-attn", bad);  // 结余为负：借钱周转按钮闪烁提示
     el.innerHTML=
-      `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b><small>（按本界面${this.s.career>=20?"实习":"打工"}时间 ${work} 估算：实习 ${sym}${fmt(p.internInc)} · 打工 ${sym}${fmt(p.workInc)}）</small></div>`+
+      `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b><small>（按本界面实习时间 ${work} 估算${this.paidIntern()?`：有偿实习 ${sym}${fmt(p.internInc)}`:"：当前无偿(Lv1)，无收入"}）</small></div>`+
       `<div class="brow">📉 预计开支　<b style="color:var(--red)">-${sym}${fmt(p.expense)}</b><small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.repay?` · 还债 ${sym}${fmt(p.repay)}`:""}${p.activity?` · 兄弟局 ${sym}${fmt(p.activity)}`:""}）</small></div>`+
       `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ⚠️ 偏紧，注意':' ✅'}</div>`;
   },
   _readAlloc(){ const a={study:0,intern:0,work:0,friend:0,flirt:0};
     document.querySelectorAll('#alloc input').forEach(i=>a[i.dataset.k]=+i.value);
-    // 收入型时间（实习/打工）在预算界面锁定，回填进来
-    const ek=this.s.career>=20?"intern":"work"; a[ek]=this._budgetWork||0;
+    // 实习时间在预算界面锁定，回填进来（换国家首学期禁止实习）
+    a.intern = this.s.countryFirstSem ? 0 : (this._budgetWork||0);
     // 富姐：维系时间最低 15（滑块已限制，这里再兜底夹紧）
     if(this.s.hasGf && this.s.gfType==="fujie") a.flirt=Math.max(15, a.flirt||0);
     return a; },
@@ -1500,8 +1600,8 @@ const Game = {
   _repaySet(v){ const r=document.getElementById("repayRange"), n=document.getElementById("repayNum"); if(n) n.value=v; if(r) r.value=v; this._bpSync(); },
   _projectBudget(alloc, money){
     const s=this.s; const E=this._allocCtx.E;
-    const workInc = alloc.work>0 ? Math.round(alloc.work*E.workRate + (E.workRand[0]+E.workRand[1])/2) : 0;
-    const internInc = (s.career>=20 && alloc.intern>0) ? alloc.intern*this.internMonthlyPerPoint()*this.monthsPerTerm() : 0;
+    const workInc = 0; // 「打工」已并入「实习」
+    const internInc = (this.paidIntern() && !s.countryFirstSem && alloc.intern>0) ? alloc.intern*this.internMonthlyPerPoint()*this.monthsPerTerm() : 0;
     const social = (money.friend||0)+(money.flirt||0);
     const repay = money.repay||0;
     const living = E.live*this.monthsPerTerm();
@@ -1544,7 +1644,7 @@ const Game = {
     const sym=cursym(); const bad=p.endBal<0;
     el.innerHTML=
       `<div class="brow">📈 预计收入　<b style="color:var(--green)">+${sym}${fmt(p.income)}</b>`+
-      `<small>（实习 ${sym}${fmt(p.internInc)} · 打工 ${sym}${fmt(p.workInc)}）</small></div>`+
+      `<small>（实习 ${sym}${fmt(p.internInc)}）</small></div>`+
       `<div class="brow">📉 预计开支　<b style="color:var(--red)">-${sym}${fmt(p.expense)}</b>`+
       `<small>（生活 ${sym}${fmt(p.living)} · 社交 ${sym}${fmt(p.social)}${p.activity?` · 活动 ${sym}${fmt(p.activity)}`:""}${p.repay?` · 还债 ${sym}${fmt(p.repay)}`:""}）</small></div>`+
       `<div class="brow bsum ${bad?'bad':''}">🏦 学期末预计结余　<b>${sym}${fmt(p.endBal)}</b>${bad?' ❌ 资金不足，回预算规划调整':' ✅'}</div>`;
@@ -1567,7 +1667,12 @@ const Game = {
 
     const logs=[];
     const isCn = s.gpaSys==="cn100";
-    const careerBefore0=s.career; // 用于检测「事业度突破20→解锁有偿实习」
+    // ---- 携带甩棍：10% 概率被宿管查寝没收 + 校园义务劳动（占用时间）----
+    if(s.hasBaton && Math.random()<0.10){
+      s.hasBaton=false; s.detentionEnergy=(s.detentionEnergy||0)+10;
+      this._semEventBaton=`🚨 宿管查寝搜出甩棍，当场没收！还罚你校园义务劳动（本学期时间 -10）。`;
+      logs.push(this._semEventBaton);
+    }
 
     // ---- 通过率（含学校难度修正 + 学习力 + 随机扰动） ----
     const studyW=alloc.study/100;
@@ -1619,25 +1724,21 @@ const Game = {
           const f=clamp((2.5-semGpa)/1.5,0,1);               // 1.0→满额，2.5→基础额
           const sch=Math.round(E.schMid + (E.schHi-E.schMid)*f);
           s.money+=sch; logs.push(`🎓 德国奖学金（绩点 ${semGpa}≤2.5，越好越多）+${E.sym}${fmt(sch)}`);
+          this._pendingScholar={amt:sch, gpa:semGpa, sym:E.sym}; // 全屏动画提醒
         }
       }
       s.gpaTotal+=semGpa; s.gpaCount++; s.lastGpa=semGpa;
       courseData={courses, passed, failed, semGpa};
     }
 
-    // ---- 打工 / 实习 收入 + 事业度 ----
-    if(alloc.work>0){
-      const inc=Math.round(alloc.work*E.workRate + rand(E.workRand[0],E.workRand[1]));
-      s.money+=inc; this.addStat("career", Math.round(alloc.work*0.1));
-      logs.push(`🧹 打工到手 +${E.sym}${fmt(inc)}（事业度微涨）`);
-    }
+    // ---- 实习 收入 + 事业度（Lv1 无偿攒经验；Lv2+ 有偿）----
     if(alloc.intern>0){
       const cBefore=s.career;
       this.addStat("career", Math.round(alloc.intern*0.5));
-      if(cBefore>=20){
+      if(this.paidIntern()){
         const per=this.internMonthlyPerPoint();
         const inc=Math.round(alloc.intern*per*this.monthsPerTerm()*(0.85+Math.random()*0.3)); // 随机浮动（按学期月数）
-        s.money+=inc; logs.push(`💼 实习收入 +${E.sym}${fmt(inc)}（事业度↑）`);
+        s.money+=inc; logs.push(`💼 有偿实习收入 +${E.sym}${fmt(inc)}（事业度↑）`);
         // 事业度越高，越有机会涨薪（持久提升每点薪资）
         if(Math.random() < s.career/220){
           s.internRaiseMult = Math.round((s.internRaiseMult + rand(10,30)/100)*100)/100;
@@ -1645,7 +1746,7 @@ const Game = {
           logs.push(`📈 实习涨薪，每点薪资倍率 ×${s.internRaiseMult}`);
         }
       } else {
-        logs.push(`💼 无偿实习攒经验，事业度 ${cBefore}→${s.career}${s.career>=20?"（已达20，下学期可赚钱！）":""}`);
+        logs.push(`💼 无偿实习攒经验，事业度 ${cBefore}→${s.career}（实习能力升到 Lv2 即可解锁有偿实习）`);
       }
     }
 
@@ -1807,6 +1908,16 @@ const Game = {
     s.health=clamp(s.health+hpDelta,0,100);
     // 拘留/找人占用的可支配时间是"一次性"的：本学期已按缩减后的精力上限结算，用完即清零
     if(s.detentionEnergy){ logs.push(`⏳ 本学期可支配时间被占用 ${s.detentionEnergy} 点（拘留/找人等）。`); s.detentionEnergy=0; }
+    // ---- 健身卡：学期末立刻回复「已损失健康」的一半 ----
+    if(s.gymThisSem){ const back=Math.round((100-s.health)/2); if(back>0){ s.health=clamp(s.health+back,0,100); logs.push(`🏋️ 健身卡见效，恢复已损失健康的一半 +${back}`); } s.gymThisSem=false; }
+    // ---- 换国家首学期已过，下学期起可正常实习 ----
+    if(s.countryFirstSem){ s.countryFirstSem=false; }
+    // ---- 搏一搏：每学期重置「每项限一次」----
+    s.gambleUsed=[];
+    // ---- 健身卡：每学期重新询问 ----
+    s.semGymAsked=false;
+    // ---- 大背头仅当前学期有效，学期末重置（需要时下学期再置办）----
+    if(s.hasHair){ s.hasHair=false; logs.push(`💇 大背头只风光一学期，发型乱了——效果重置（可下学期再做）。`); }
 
     // ---- 随机事件：智齿发作 ----
     if(Math.random()<0.22){
@@ -1836,18 +1947,15 @@ const Game = {
     // 健康恢复良好则解除"住院警告"
     if(s.health>=70) s.hospWarned=false;
 
-    // ---- 技能解锁：事业度首次突破 20 → 有偿实习 ----
-    if(careerBefore0<20 && s.career>=20){
-      this._pendingSkillUnlock={emoji:"💼", title:"有偿实习", color:"#3fb950",
-        desc:"事业度突破 20！实习不再无偿——从此实习有工资，事业度越高、涨薪空间越大。"};
-    }
+    // 「有偿实习」解锁改由实习能力升到 Lv2 触发（见 skillLevelAnim）
 
     // ---- 技能经验积累：本学期各项投入折算为经验，学期末动画结算升级 ----
     this._ensureLvl();
     const su=E.socUnit||130;
     this._xpGain={
       career: Math.round((alloc.intern||0)+(alloc.work||0)),
-      xuexi:  Math.round(alloc.study||0),
+      // 女室友(xueba)：每学期额外增加学习能力经验
+      xuexi:  Math.round((alloc.study||0) + ((s.hasGf&&s.gfType==="xueba")?20:0)),
       bro:    Math.round((alloc.friend||0)+(money.friend||0)/su*8),
       eq:     Math.round((alloc.flirt||0)+(money.flirt||0)/su*8),
     };
@@ -1862,6 +1970,8 @@ const Game = {
     if(this._xpGain && SKILL_KEYS.some(k=>this._xpGain[k]>0)){ const g=this._xpGain; this._xpGain=null; const nx=after; after=()=>this.skillLevelAnim(g, nx); }
     // 投资走势图动画（逐点揭秘盈亏，紧贴年度小结之前）
     if(this._stockAnim){ const a=this._stockAnim; this._stockAnim=null; const nx=after; after=()=>this.assetCurve(a, nx); }
+    // 奖学金（绩点进入 2.5 以内）→ 全屏动画提醒
+    if(this._pendingScholar){ const sc=this._pendingScholar; this._pendingScholar=null; const nx=after; after=()=>this.eventSplash({emoji:"🎓", title:"获得奖学金！", sub:`绩点 ${sc.gpa} · ${sc.sym}${fmt(sc.amt)}`, color:"#ffcc4d", hold:1900}, nx); }
     // 美女女友"买衣服"攻略事件插在结算前
     if(this._pendingMeinuDress){ this._pendingMeinuDress=false; const nx=after; after=()=>this.meinuDressEvent(nx); }
     // 女友重大事件：分手 / 网恋蒸发 / 吵架预警 → 全屏动画（_gfEvent 由 yearSummary 负责复盘清空）
@@ -1936,6 +2046,14 @@ const Game = {
       return Object.assign({}, r, {lvl, xp, ups, pct});
     });
     this.render();
+    // 实习能力升到 Lv2 → 解锁「有偿实习」全屏动画（仅一次）
+    let cont=next;
+    const careerRow=result.find(r=>r.k==="career");
+    if(careerRow && careerRow.before<2 && careerRow.lvl>=2 && !s.flags.paidInternUnlocked){
+      s.flags.paidInternUnlocked=true;
+      cont=()=>this.skillUnlock({emoji:"💼", title:"有偿实习", color:"#3fb950",
+        desc:"实习能力升到 Lv2！从此实习不再无偿——实习开始有工资，事业度越高、涨薪空间越大。"}, next);
+    }
     const html=result.map(r=>`
       <div style="margin:11px 0">
         <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700">
@@ -1950,7 +2068,7 @@ const Game = {
     D({loc:"📊 技能经验结算",
        lines:[["env","本学期的历练，化作经验值——看看哪项技能升级了。"]],
        extra:`<div>${html}</div>`,
-       choices:[{t:"▶ 继续", cls:"gold", f:next}]});
+       choices:[{t:"▶ 继续", cls:"gold", f:cont}]});
     result.forEach((r,i)=>{
       setTimeout(()=>{
         const fill=document.getElementById("lvfill_"+r.k), tag=document.getElementById("lvtag_"+r.k), plus=document.getElementById("lvplus_"+r.k);
@@ -2113,11 +2231,14 @@ const Game = {
       const E=this.econ();
       const good = isCn ? gpa>=80 : gpa>=4.0;
       const mid  = isCn ? gpa>=70 : gpa>=3.3;
-      if(good){ const sch=E.schHi; s.money+=sch; logs.push(`🏆 绩点优异，奖学金 +${E.sym}${fmt(sch)}！`); }
-      else if(mid){ const sch=E.schMid; s.money+=sch; logs.push(`🥈 绩点良好，奖学金 +${E.sym}${fmt(sch)}`); }
+      let schAward=0;
+      if(good){ schAward=E.schHi; s.money+=schAward; logs.push(`🏆 绩点优异，奖学金 +${E.sym}${fmt(schAward)}！`); }
+      else if(mid){ schAward=E.schMid; s.money+=schAward; logs.push(`🥈 绩点良好，奖学金 +${E.sym}${fmt(schAward)}`); }
       logs.push(isCn?`📊 本学年绩点：${gpa} 分`:`📊 本学年绩点：${gpa}/5.0`);
       this.render();
-      setTimeout(done, 1100);
+      // 获得奖学金 → 全屏动画提醒，再继续
+      if(schAward>0) setTimeout(()=>this.eventSplash({emoji:"🎓", title:"获得奖学金！", sub:`绩点 ${gpa} · ${E.sym}${fmt(schAward)}`, color:"#ffcc4d", hold:1800}, done), 1100);
+      else setTimeout(done, 1100);
     }, 4700);
   },
 
@@ -2181,7 +2302,7 @@ const Game = {
       choices.push({t:"💪 武力威胁老师", sub:`成功率 ${forceP}%（更高）·失败将被开除`, cls:"danger", f:()=>this.gradThreaten(remain)});
     }
     choices.push({t:`📚 继续读（升入下一学期）`, sub:`距毕业还差 ${remain} 学分`, cls:"gold", f:()=>this.beginYear()});
-    choices.push({t:"🚪 主动退学", sub:"放弃学业", cls:"danger", f:()=>this.confirmDropout()});
+    choices.push({t:"🚪 主动退学", sub: s.lineType==="harbin"?"前往德国·不伦瑞克 重读本科":"放弃学业", cls:"danger", f:()=>this.confirmDropout()});
     D({loc:`${s.school} · ${yrLabel} 结算`, lines, choices});
   },
 
@@ -2453,15 +2574,17 @@ const Game = {
   // 搏一搏下注上限（投资股票无上限，但赌博必须有封顶，防止一把梭哈输光家底）
   gambleCap(){ return this.s.cur==="EUR"?10000:(this.s.cur==="GBP"?10000:100000); },
   gambleMenu(credits, yrLabel, makeup){
-    const s=this.s;
+    const s=this.s; const used=s.gambleUsed||(s.gambleUsed=[]);
     const games=[
       {k:"ddz", nm:"🃏 斗地主", win:0.5,  mult:2.0, desc:"50% 翻倍 · 可买记牌器提升胜率"},
       {k:"ball",nm:"⚽ 赌球",   win:0.45, mult:2.2, desc:"45% 拿 2.2 倍"},
       {k:"poly",nm:"📊 Polymarket 下注", win:0.4, mult:2.6, desc:"40% 拿 2.6 倍"},
     ];
     D({loc:"🎲 搏一搏", tw:true,
-      lines:[["env",`手头还有 ${cursym()}${fmt(s.money)}。富贵险中求，押哪个？`]],
-      choices: games.map(g=>({t:`${g.nm}`, sub:g.desc, f:()=>this.gamblePlay(g, credits, yrLabel, makeup)}))
+      lines:[["env",`手头还有 ${cursym()}${fmt(s.money)}。富贵险中求，押哪个？（每项本回合限玩一次）`]],
+      choices: games.map(g=> used.includes(g.k)
+          ? {t:`${g.nm}（本回合已玩）`, sub:"每项每回合只能来一次", f:()=>{ this.toast("这一项本回合已经玩过啦 🎲"); }}
+          : {t:`${g.nm}`, sub:g.desc, f:()=>this.gamblePlay(g, credits, yrLabel, makeup)})
         .concat([{t:"↩ 不赌了", f:()=>this.cantAfford(credits, yrLabel, makeup)}])});
   },
   // 记牌器价格（按币种）
@@ -2489,6 +2612,7 @@ const Game = {
       {t:"🎲 梭哈！", cls:"gold", f:()=>{
         const bet=clamp(Math.round(+(document.getElementById("gbNum")||{}).value||0), 0, max);
         if(bet<=0){ this.toast("押注金额要大于 0"); return; }
+        s.gambleUsed=s.gambleUsed||[]; if(!s.gambleUsed.includes(g.k)) s.gambleUsed.push(g.k); // 每项本回合限一次
         const win=Math.random()<winP;
         if(win){ const gain=Math.round(bet*(g.mult-1)); s.money+=gain; this.render();
           D({loc:`🎲 ${g.nm} · 赢了！`, tw:true, lines:[["env",`🎉 赢了！+${cursym()}${fmt(gain)}（本金 ${cursym()}${fmt(bet)} ×${g.mult}${hasCC?" · 记牌器加成":""}）`],["you","富贵险中求！","think"]],
@@ -2601,7 +2725,7 @@ const Game = {
           choices:[
             {t:"🎓 申请海外硕士", sub:"凭绩点冲慕尼黑 / 稳进斯图加特", cls:"gold", f:()=>this.applyMaster()},
             {t:"🚩 走红旗支线", sub:"三舅帮忙进红旗汽车", f:()=>this.endingHongqi()},
-            {t:"✈️ 去德国·布伦瑞克 重读本科", sub:"不伦瑞克工业大学 · 不想这么早安定", f:()=>this.enterBraunschweig()},
+            {t:"✈️ 去德国·布伦瑞克 重读本科", sub:"收集更多学生证和毕业证", f:()=>this.enterBraunschweig()},
             {t:`🏯 回${home()}`, sub:"低调生活", cls:"danger", f:()=>this.endingFactoryDog(
               `你婉拒了三舅的好意，回了${home()}。最终还是进了厂。`)}
           ]});
@@ -2633,7 +2757,7 @@ const Game = {
     const s=this.s;
     s.school="不伦瑞克工业大学"; s.gpaSys="de5";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=120; s.lineType="braunschweig"; s.major="ice"; // 内燃机车辆工程
+    s.creditGoal=180; s.lineType="braunschweig"; s.major="ice"; // 内燃机车辆工程
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     const before=s.money;
     this.moveCountry("EUR"); // 资金兑换为欧元（换国家·事业度减半）
@@ -2675,11 +2799,11 @@ const Game = {
     const g=avgGpa(s);
     const isCn=s.gpaSys==="cn100";
     // 德国制：低=好(5-g)；百分制：高=好(g-60)
-    // 布伦瑞克重读本科后再战 TUM，成功率显著提高
-    const brBoost = s.flags.brGrad ? 0.18 : 0;
-    const muProb = clamp((isCn
+    const baseProb = clamp(isCn
       ? 0.05 + ((g-60)/40)*0.7
-      : 0.08 + ((5-g)/4)*0.62) + brBoost, 0.05, 0.92);
+      : 0.08 + ((5-g)/4)*0.62, 0.05, 0.92);
+    // 刷绩点复读（布伦瑞克重读本科）后再战 TUM：录取率最低 80%，随成绩继续提高
+    const muProb = s.flags.brGrad ? clamp(Math.max(0.80, baseProb), 0.80, 0.97) : baseProb;
     const gradeDesc = isCn ? `${g} 分（百分制，越高越好）` : `${g}（1.0 最佳 / 5.0 挂）`;
     D({loc:"硕士申请",
       lines:[
@@ -2717,7 +2841,7 @@ const Game = {
     const s=this.s;
     s.school="慕尼黑工业大学"; s.gpaSys="de5";
     s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=90; s.lineType="munich"; s.major="ice"; // 内燃机车辆工程
+    s.creditGoal=120; s.lineType="munich"; s.major="ice"; // 内燃机车辆工程
     // 女友需在学习阶段靠情商自行脱单，不再自动赠送
     if(!s.hasGf){ s.gfType=null; s.gfOrigin=null; s.gfWarned=false; s.gfFavor=0; } // 单身入学：清除任何残留女友状态
     this.moveCountry("EUR"); // 申请费已在「赌 TUM」时缴纳
@@ -2751,11 +2875,11 @@ const Game = {
   // transfer=true 时为「转学」（如 TUM→司徒），原校已修学分认证一半
   enterStuttgart(transfer){
     const s=this.s;
-    const carried = transfer ? Math.min(89, Math.floor((s.creditsEarned||0)/2)) : 0;
+    const carried = transfer ? Math.min(119, Math.floor((s.creditsEarned||0)/2)) : 0;
     s._transferCarried = carried;
     s.school="斯图加特大学（司徒）"; s.gpaSys="de5";
     s.creditsEarned=carried; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0;
-    s.creditGoal=90; s.lineType="stuttgart";
+    s.creditGoal=120; s.lineType="stuttgart";
     // 女友需在学习阶段靠情商自行脱单，不再自动赠送
     this.moveCountry("EUR");
     const fee=this.germanAppFee(); s.money=Math.max(0,s.money-fee-1500); // 申请费€1000 + 学费€1500
@@ -2891,8 +3015,7 @@ const Game = {
     const unmet=Object.keys(PEOPLE).filter(id=>!s.friends[id]);
     if(unmet.length) choices.push({t:"🧲 结识新兄弟（花兄弟义气）", sub:`掏出义气结交新朋友（现有义气 ${s.bro}）`, f:()=>this.recruitMenu(()=>this.semesterStart())});
     choices.push({t:"📇 联系人（女友 / 兄弟）", sub:"查看亲密度 · 维系 / 分手 / 绝交", f:()=>this.contactsPanel(()=>this.semesterStart())});
-    if(s.canStock && !s.coin && Object.keys(s.friends||{}).length)
-      choices.push({t:"🪙 发行虚拟币·割韭菜", sub:"向兄弟募资·来钱快·日后或暴雷", cls:"danger", f:()=>this.issueCoinMenu(()=>this.semesterStart())});
+    if(s.canStock) choices.push({t:"💹 募资理财", sub:"投资理财 / 发行虚拟币", f:()=>this.financeMenu(()=>this.semesterStart())});
     choices.push({t:"📚 开始上课（先预算，再选课）", cls:"gold", f:()=>this.studyYear()});
     D({loc:`${s.school} · 学期初`, lines, choices});
   },
@@ -2908,7 +3031,7 @@ const Game = {
 
   /* ===================== 尝试脱单（学期末按情商定成败） ===================== */
   _courtPlanDesc(){ const c=this.s.courtPlan; if(!c) return "无"; if(c.mode==="net") return "网恋尝试";
-    const tn={meinu:"美女",fujie:"富姐",xueba:"学霸"}[c.target]||"对象"; return `图书馆搭讪·${tn}${c.breakfast?"·买早餐":""}`; },
+    const tn={meinu:"美女",fujie:"富姐",xueba:"女室友"}[c.target]||"对象"; return `图书馆搭讪·${tn}${c.breakfast?"·买早餐":""}`; },
   courtMenu(back){
     const s=this.s;
     const lines=[["you",`情商 ${s.eq}。脱单有风险——情商太低贸然出击，可能被对方拉黑。${s.courtPlan?"\n当前计划："+this._courtPlanDesc():""}`,"think"]];
@@ -2922,12 +3045,15 @@ const Game = {
   },
   courtTargetMenu(back){
     const s=this.s; const blocked=s.blocked||[];
-    const targets=[{k:"meinu",nm:"💃 美女",d:"花钱多 → 收益健康"},{k:"fujie",nm:"💎 富姐",d:"费时间 → 零花钱/借钱"},{k:"xueba",nm:"🤓 学霸",d:"均衡 → 提升成绩"}];
+    const targets=[{k:"meinu",nm:"💃 美女",d:"花钱多 → 收益健康"},{k:"fujie",nm:"💎 富姐",d:"费时间 → 零花钱/借钱"},{k:"xueba",nm:"👩‍🎓 女室友",d:"将宿舍改书房·提升学习能力"}];
     const choices=targets.map(t=> blocked.includes(t.k)
       ? {t:`🚫 ${t.nm}（已拉黑）`, sub:"无法再攻略", f:()=>this.courtTargetMenu(back)}
       : {t:t.nm, sub:t.d, f:()=> t.k==="meinu" ? this.courtMeinu(back) : this.courtBreakfast(t.k, back)});
     choices.push({t:"↩ 返回", f:()=>this.courtMenu(back)});
-    D({loc:"📚 图书馆搭讪 · 选对象", lines:[["you","图书馆里，谁能成为我的攻略对象？情商够不够，学期末见真章。","think"]], choices});
+    const lines=[["you","图书馆里，谁能成为我的攻略对象？情商够不够，学期末见真章。","think"]];
+    const eqLow = (this._lvl("eq")<2) || (s.eq||0)<35;
+    if(eqLow) lines.push(["env",`⚠️ 你的情商等级偏低（情商 Lv.${this._lvl("eq")}）。贸然搭讪很可能被对方反感、当场拉黑——建议先把妹历练涨情商，再来出击。`]);
+    D({loc:"📚 图书馆搭讪 · 选对象", lines, choices});
   },
   courtBreakfast(target, back){
     const s=this.s; const E=this.econ(); const bp=Math.round(E.live*0.3);
@@ -2962,20 +3088,21 @@ const Game = {
     const s=this.s; s.hasGf=true; s.gfType=type; s.gfFavor=type==="net"?72:60; s.gfWarned=false; s.gfOrigin={cur:s.cur, line:s.lineType};
     // 富姐：之后每学期固定占用 15–20 点时间维系（在时间界面锁死）
     s.gfTimeLock = type==="fujie" ? rand(15,20) : 0;
+    if(type==="xueba") this._xuebaWinPerk(); // 女室友：攻略成功提升学习等级
   },
   // 学期末公布脱单进度（全屏动画）
   courtResultEvent(info, next){
     const s=this.s;
     if(info.success){
       this._becomeGf(info.type); this.render();
-      const tn={meinu:"美女",fujie:"富姐",xueba:"学霸",net:"网恋对象"}[info.type];
+      const tn={meinu:"美女",fujie:"富姐",xueba:"女室友",net:"网恋对象"}[info.type];
       return this.eventSplash({emoji:"💖", title:"脱单成功", sub:`你和${tn}在一起了`, color:"#ff8ecb"}, ()=>{
         D({loc:"💖 脱单成功", tw:true, lines:[["gf","以后请多关照啦～",{big:true}],["env","💕 攻略成功！面板已切换为「女友亲密度」。"],["you","总算脱单了！","think"]], choices:[{t:"▶ 继续", cls:"gold", f:next}]});
       });
     }
     if(info.blocked){
       s.blocked=s.blocked||[]; if(info.target && !s.blocked.includes(info.target)) s.blocked.push(info.target); this.render();
-      const tn={meinu:"美女",fujie:"富姐",xueba:"学霸"}[info.target]||"对方";
+      const tn={meinu:"美女",fujie:"富姐",xueba:"女室友"}[info.target]||"对方";
       return this.eventSplash({emoji:"🚫", title:"被拉黑", sub:`情商太低，${tn}把你拉黑了`, color:"#ff5b5b"}, ()=>{
         D({loc:"🚫 被拉黑", tw:true, lines:[["env",`💔 情商不足还贸然出击，${tn}觉得被冒犯，直接把你拉黑了！（联系人里显示「拉黑」，该对象无法再攻略）`],["you","用力过猛，社死了……","think"]], choices:[{t:"▶ 继续", cls:"gold", f:next}]});
       });
@@ -2993,7 +3120,8 @@ const Game = {
       s.flags.jennySkill=true;
       s.examBonus=(s.examBonus||0)+0.10;          // 通过率加成
       s.gradeBonus=(s.gradeBonus||0)+0.5;         // 考试成绩加成
-      out.push(["env","📚 杰尼龟传你「学霸笔记」——考试通过率与成绩都提升了！"]);
+      this._ensureLvl(); if((s.lvl.xuexi||1)<10){ s.lvl.xuexi=(s.lvl.xuexi||1)+1; } // 立刻升一级学习等级
+      out.push(["env",`📚 杰尼龟传你「学霸笔记」——学习等级立刻 +1（现 Lv.${s.lvl.xuexi}），考试通过率与成绩都提升！往后请他吃饭还能继续涨学习经验。`]);
     }
     if(id==="zhao"){
       if(s.major!=="ad" && !s.canStock){
@@ -3061,7 +3189,7 @@ const Game = {
   contactsPanel(back){
     const s=this.s; const E=this.econ(); const treat=Math.round(E.live*0.4);
     this._contactsBack=back;
-    const tn={meinu:"美女",fujie:"富姐",xueba:"学霸",net:"网恋对象"};
+    const tn={meinu:"美女",fujie:"富姐",xueba:"女室友",net:"网恋对象"};
     const cbtn=(label,fn,danger)=>`<button onclick="${fn}" style="appearance:none;border:1px solid ${danger?'#5a2424':'var(--line)'};background:${danger?'#241414':'var(--panel2)'};color:var(--txt);padding:7px 9px;border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap">${label}</button>`;
     const row=(left,btns)=>`<div style="display:flex;align-items:center;gap:6px;padding:8px 2px;border-bottom:1px dashed var(--line)"><span style="flex:1;font-size:14px;min-width:0">${left}</span>${btns}</div>`;
     const rows=[];
@@ -3076,7 +3204,7 @@ const Game = {
       rows.push(row(`${fi.face} ${fi.nm}<b style="color:var(--gold)">（${fr.fav||0}）</b>${tag}`, cbtn("🍻请吃饭",`Game.cTreat('${id}')`)+cbtn("✂️绝交",`Game.cCut('${id}')`,true)));
     });
     else rows.push(`<div style="padding:8px 2px;font-size:14px;color:var(--dim)">🧑‍🤝‍🧑 暂无结识的兄弟</div>`);
-    const blocked=(s.blocked||[]).length?`<div class="hint" style="text-align:left;margin-top:6px">🚫 已拉黑：${s.blocked.map(k=>({meinu:"美女",fujie:"富姐",xueba:"学霸"}[k]||k)).join("、")}（无法再攻略）</div>`:"";
+    const blocked=(s.blocked||[]).length?`<div class="hint" style="text-align:left;margin-top:6px">🚫 已拉黑：${s.blocked.map(k=>({meinu:"美女",fujie:"富姐",xueba:"女室友"}[k]||k)).join("、")}（无法再攻略）</div>`:"";
     D({loc:"📇 联系人",
       lines:[["env",`📇 联系人 · 请吃饭 ${E.sym}${fmt(treat)}/次${s.semTreatN?`（已请 ${s.semTreatN} 次·递减）`:""}`]],
       extra:`<div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 11px">${rows.join("")}</div>${blocked}`,
@@ -3215,7 +3343,14 @@ const Game = {
       {t:"🕊️ 心平气和绝交", sub:"好聚好散 · 损失兄弟义气", f:()=>this.cutBrother(id, back)},
     ];
     if(s.hasBaton) choices.push({t:"🥢 暴力绝交", sub:"不损义气 · 30% 概率被报警", cls:"danger", f:()=>this.violentCut(id, back)});
-    else choices.push({t:"🥢 暴力绝交（需甩棍）", sub:"手里没家伙，下不去手", dis:true, f:()=>{}});
+    else {
+      const bp=ITEMS.baton.price[s.cur]||ITEMS.baton.price.CNY;
+      choices.push({t:`🥢 立刻买根甩棍（${cursym()}${fmt(bp)}）`, sub:"买完即可暴力绝交", f:()=>{
+        if(s.money<bp){ return this.offerQuickLoan(bp, ()=>this.cutBrotherMenu(id, back)); }
+        s.money-=bp; s.hasBaton=true; this.render(); this.toast("入手·甩棍 🥢");
+        this.cutBrotherMenu(id, back);
+      }});
+    }
     choices.push({t:"↩ 再想想", f:back});
     D({loc:"✂️ 怎么绝交？", tw:true,
       lines:[["you",`和 ${nm} 这段关系，是好好说断，还是动点真格的？`,"think"]],
@@ -3344,10 +3479,10 @@ const Game = {
     if(shop) lines.push(["env", shop.succ ? `你${shop.what}，办得地道，兄弟们直竖大拇指！（兄弟义气 +${shopBro}）`
                                           : `你${shop.what}，结果买错了被一顿猛喷……（兄弟义气 ${shopBro}）`]);
     else lines.push(["env","你懒得动弹，蹭了顿现成的。"]);
-    // 兄弟活动有概率被阿鲁巴（结识旭子/请旭子吃饭后概率下降）
-    if(Math.random()<this.arubaProb(0.32)){
-      const hp=rand(6,14); s.health=clamp(s.health-hp,0,100); this.render();
-      lines.push(["env",`🪜 酒过三巡，兄弟们一拥而上把你架到栏杆上「阿鲁巴」！胯下生风，健康 -${hp}。${s.friends.xuzi?"":"（结识旭子能少挨几回）"}`]);
+    // 兄弟活动有较低概率被阿鲁巴（结识旭子/请旭子吃饭后概率进一步下降）；被阿鲁巴健康 -5
+    if(Math.random()<this.arubaProb(0.18)){
+      s.health=clamp(s.health-5,0,100); this.render();
+      lines.push(["env",`🪜 酒过三巡，兄弟们一拥而上把你架到栏杆上「阿鲁巴」！胯下生风，健康 -5。${s.friends.xuzi?"":"（结识旭子能少挨几回）"}`]);
     }
     // 集体活动：50% 概率随机强制结交一个新朋友进联系人（不消耗兄弟义气）；其中约半数是反派
     const allUnmet = Object.keys(PEOPLE).filter(id=>!s.friends[id]);
@@ -3488,6 +3623,26 @@ const Game = {
   /* ===================== 发行虚拟币·割兄弟韭菜（解锁炒股后可用） ===================== */
   // 每个联系人按亲密度出资 1000~2000（按币种），募资直接进现金；日后每年 20% 概率暴雷
   coinUnit(){ const c=this.s.cur; return c==="EUR"?[1000,2000]:(c==="GBP"?[900,1800]:[8000,16000]); },
+  // 募资理财大类：投资理财（炒股）+ 发行虚拟币（割韭菜）
+  financeMenu(back){
+    const s=this.s;
+    const coinReady = s.canStock && this._lvl("career")>=3;
+    // 首次满足「实习Lv3 + 炒股」→ 全屏动画解锁「发行虚拟币」
+    if(coinReady && !s.flags.coinUnlocked){
+      s.flags.coinUnlocked=true;
+      return this.skillUnlock({emoji:"🪙", title:"发行虚拟币·割韭菜", color:"#ffcc4d",
+        desc:"实习能力达到 Lv3 且已掌握炒股——解锁终极募资手段：发行虚拟币向兄弟募资！（日后可能暴雷）"}, ()=>this.financeMenu(back));
+    }
+    this._allocCtx=null; // 本菜单内投资按现金额度
+    const choices=[];
+    if(s.canStock) choices.push({t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财（炒股）", sub: s.pendingStock?"本年度已投，等结算":"每年一次·本金锁定到年底", f:()=>this.stockGame(()=>this.financeMenu(back))});
+    else choices.push({t:"🔒 投资理财（需炒股技能）", sub:"自动驾驶方向 / 结识赵老师可解锁", f:()=>{ this.toast("还没解锁炒股技能 📈"); }});
+    if(s.coin) choices.push({t:"🪙 虚拟币已发行（等待结算/暴雷）", sub:"割一次就够了", f:()=>{ this.toast("已经发过币了 🪙"); }});
+    else if(coinReady) choices.push({t:"🪙 发行虚拟币·割韭菜", sub:"向兄弟募资·来钱快·日后或暴雷", cls:"danger", f:()=>this.issueCoinMenu(back)});
+    else choices.push({t:"🔒 发行虚拟币·割韭菜", sub:`需 实习 Lv3 + 炒股技能（当前实习 Lv${this._lvl("career")}${s.canStock?"":" · 未解锁炒股"}）`, f:()=>{ this.toast("条件不足：实习达 Lv3 且已解锁炒股"); }});
+    choices.push({t:"↩ 返回", cls:"gold", f:back});
+    D({loc:"💹 募资理财", lines:[["env","💹 募资理财——钱生钱，或者……割韭菜。"]], choices});
+  },
   issueCoinMenu(back){
     const s=this.s;
     if(!s.canStock){ this.toast("先解锁炒股技能才会发币 📈"); return back(); }
@@ -3660,12 +3815,10 @@ const Game = {
     if(s.shYears===0 && !s.hasGf && !s.flags.momMarriage){ s.flags.momMarriage=true; return this.momMarriageEvent(); }
     // 注意：不在入口判定破产——刚入职还没发薪，破产判定放在"推进一年"领薪之后
     const target = s.hasGf ? "女友 + ¥500万" : "¥1000万（已单身）";
-    const choices=[
-      {t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财", sub: s.pendingStock?"本年度已投，推进一年才结算":"每年一次·本金锁定到年底", f:()=>this.stockGame(()=>this.shanghaiHub())},
-    ];
+    const choices=[];
+    if(s.canStock) choices.push({t:"💹 募资理财", sub:"投资理财 / 发行虚拟币", f:()=>this.financeMenu(()=>this.shanghaiHub())});
+    else choices.push({t: s.pendingStock?"📈 已建仓（年底结算）":"📈 投资理财", sub: s.pendingStock?"本年度已投，推进一年才结算":"每年一次·本金锁定到年底", f:()=>this.stockGame(()=>this.shanghaiHub())});
     if(!s.flags.hefeiDone) choices.push({t:"🧧 旭子的婚礼请柬", sub:"合肥支线", f:()=>this.hefeiInvite()});
-    if(s.canStock && !s.coin && Object.keys(s.friends||{}).length)
-      choices.push({t:"🪙 发行虚拟币·割韭菜", sub:"向兄弟募资·来钱快·日后或暴雷", cls:"danger", f:()=>this.issueCoinMenu(()=>this.shanghaiHub())});
     choices.push({t:"⏭️ 推进一年（分配时间 · 领薪）", cls:"gold", f:()=>this.shanghaiYearPlan()});
     D({loc:"🌃 上海", art:"shanghai",
       lines:[
@@ -4232,7 +4385,7 @@ const Game = {
     this.moveCountry("GBP");
     s.money=Math.max(0, s.money-100000);
     s.school="伦敦大学学院（UCL）"; s.gpaSys="de5"; s.lineType="london";
-    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0; s.creditGoal=90;
+    s.creditsEarned=0; s.creditsFailed=0; s.yearInSchool=0; s.gpaTotal=0; s.gpaCount=0; s.creditGoal=120;
     s.costY=24000; s.incomeY=0;
     if(!s.studentIds.includes(s.school)) s.studentIds.push(s.school);
     this.render();
@@ -4786,7 +4939,7 @@ const PEOPLE={
   feizi:{nm:"非子", cost:36, get:{wuli:12},    skill:"少林护体：武力值大增", intro:"跟兄弟今晚去健身房练臀吗？记得打好领结。"},
   yong: {nm:"勇哥", cost:32, get:{},          skill:"未知", intro:"叫我勇哥。给你提个醒——离那个加菲猫远点，那货负能量爆棚，听他唠嗑能给你整抑郁了。"},
   kong: {nm:"孔老师",cost:32, get:{renmai:14}, skill:"人脉引荐：结交其他兄弟一律打折", intro:"我孔某人朋友遍天下，往后给你多引荐人脉——交了我，再结交别的兄弟都给你打折。"},
-  garf: {nm:"加菲猫",cost:20, get:{eq:6},      skill:"未知", intro:"（堵在宿舍门口）就你们也喝不起星巴克吧？我天天一杯，要不要我请你……开个玩笑。哎你别走啊，陪我唠唠！"},
+  garf: {nm:"加菲猫",cost:20, get:{},          skill:"未知", intro:"（堵在宿舍门口）就你们也喝不起星巴克吧？我天天一杯，要不要我请你……开个玩笑。哎你别走啊，陪我唠唠！"},
   kubi: {nm:"小苦逼",cost:16, get:{},          skill:"未知", intro:"唉……活着真没意思，干啥啥不行，倒霉的事儿全让我赶上了。你说人活着到底图个啥呢……"},
   ang:  {nm:"昂哥", cost:14, get:{},          skill:"未知", intro:"哥们儿叫昂哥！通宵开黑、白天补觉，潇洒得很。交个朋友，以后一起上分。"},
   jenny:{nm:"杰尼龟",cost:32, get:{xuexi:14},  skill:"学霸笔记：学习力↑、考试成绩与通过率↑", intro:"考试范围我都划好了，跟着我稳过。"},
